@@ -50,7 +50,7 @@ type GoalEvent = {
 };
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
-const STORAGE_KEY = 'copa-colmeias-last-scores-v1';
+const STORAGE_KEY = 'copa-colmeias-final-last-scores-v1';
 const RANKING_ROTATE_MS = 7000;
 
 export default function FinalPage() {
@@ -70,7 +70,7 @@ export default function FinalPage() {
       setIsLoading(false);
       evaluateGoal(payload);
     } catch (error) {
-      console.error('Erro ao carregar painel', error);
+      console.error('Erro ao carregar painel da final', error);
       setIsLoading(false);
     }
   }, []);
@@ -88,7 +88,7 @@ export default function FinalPage() {
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() === 'g') {
-        showGoal({ teamName: 'Porto Seguro Centro', score: '3 X 1', matchId: 'demo' });
+        showGoal({ teamName: 'Finalista da Copa', score: '1 X 0', matchId: 'demo-final' });
       }
     };
 
@@ -119,31 +119,15 @@ export default function FinalPage() {
   }, [hasRankingSecondPage]);
 
   const evaluateGoal = (payload: PanelPayload) => {
-    const nextScores: Record<string, { left: number; right: number }> = {};
+    const finalMatch = getFinalMatch(payload.matches);
+    if (!finalMatch) return;
+
+    const nextScores: Record<string, { left: number; right: number }> = {
+      [finalMatch.id]: { left: finalMatch.leftScore, right: finalMatch.rightScore }
+    };
+
     const previous = previousScores.current;
-    const goals: GoalEvent[] = [];
-
-    payload.matches.forEach((match) => {
-      nextScores[match.id] = { left: match.leftScore, right: match.rightScore };
-      const before = previous?.[match.id];
-      if (!before) return;
-
-      if (match.leftScore > before.left) {
-        goals.push({
-          teamName: match.left.name,
-          score: `${match.leftScore} X ${match.rightScore}`,
-          matchId: match.id
-        });
-      }
-
-      if (match.rightScore > before.right) {
-        goals.push({
-          teamName: match.right.name,
-          score: `${match.leftScore} X ${match.rightScore}`,
-          matchId: match.id
-        });
-      }
-    });
+    const before = previous?.[finalMatch.id];
 
     previousScores.current = nextScores;
 
@@ -153,8 +137,24 @@ export default function FinalPage() {
       // Sem efeito critico para TV.
     }
 
-    const lastGoal = goals[goals.length - 1];
-    if (lastGoal) showGoal(lastGoal);
+    if (!before) return;
+
+    if (finalMatch.leftScore > before.left) {
+      showGoal({
+        teamName: finalMatch.left.name,
+        score: `${finalMatch.leftScore} X ${finalMatch.rightScore}`,
+        matchId: finalMatch.id
+      });
+      return;
+    }
+
+    if (finalMatch.rightScore > before.right) {
+      showGoal({
+        teamName: finalMatch.right.name,
+        score: `${finalMatch.leftScore} X ${finalMatch.rightScore}`,
+        matchId: finalMatch.id
+      });
+    }
   };
 
   const showGoal = (goal: GoalEvent) => {
@@ -162,6 +162,21 @@ export default function FinalPage() {
     if (goalTimer.current) clearTimeout(goalTimer.current);
     goalTimer.current = setTimeout(() => setActiveGoal(null), 6800);
   };
+
+  const finalMatch = useMemo(() => {
+    if (!data) return null;
+    return getFinalMatch(data.matches);
+  }, [data]);
+
+  const finalHasPortoSeguro = useMemo(() => {
+    if (!finalMatch) return false;
+    return isPortoSeguro(finalMatch.left.name) || isPortoSeguro(finalMatch.right.name);
+  }, [finalMatch]);
+
+  const finalDate = finalHasPortoSeguro ? '01/07' : '30/06';
+  const scheduleNote = finalHasPortoSeguro
+    ? 'Data ajustada por feriado municipal em Porto Seguro'
+    : 'Data prevista da grande final';
 
   const tickerText = useMemo(() => {
     if (!data) return '';
@@ -186,30 +201,260 @@ export default function FinalPage() {
         <div className="loader-card">
           <div className="brand-mark mini"><HoneyIcon /></div>
           <h1>COPA DAS COLMEIAS</h1>
-          <p>Carregando placar ao vivo...</p>
+          <p>Carregando painel da grande final...</p>
         </div>
       </main>
     );
   }
 
-  const payload = data!;
+  if (!data) {
+    return (
+      <main className="screen loading-screen">
+        <div className="loader-card">
+          <div className="brand-mark mini"><HoneyIcon /></div>
+          <h1>COPA DAS COLMEIAS</h1>
+          <p>Não foi possível carregar os dados da final.</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className={`screen ${activeGoal ? 'goal-active' : ''}`}>
+    <main className={`screen final-screen ${activeGoal ? 'goal-active' : ''}`}>
       <style jsx global>{`
-        .ranking-list-animated {
+        .final-screen .topbar p {
+          color: var(--gold);
+        }
+
+        .final-stage {
+          position: relative;
+          height: calc(100vh - 13.2vh - 70px);
+          min-height: 500px;
+          padding: 2.2vh 2.75vw 1.7vh;
+          display: grid;
+          grid-template-columns: minmax(780px, 1fr) minmax(330px, 28vw);
+          gap: 2vw;
+        }
+
+        .final-main {
+          min-width: 0;
+          display: grid;
+          grid-template-rows: auto 1fr;
+          gap: 2vh;
+        }
+
+        .final-topline {
+          min-height: 96px;
+          padding: 18px 34px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          align-items: center;
+          gap: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          background: linear-gradient(135deg, rgba(9, 21, 35, 0.96), rgba(2, 8, 18, 0.76));
+          clip-path: polygon(2% 0, 97% 0, 100% 50%, 97% 100%, 0 100%, 0 14%);
+          box-shadow: 0 24px 70px rgba(0, 0, 0, 0.25), inset 0 0 60px rgba(255, 255, 255, 0.025);
+        }
+
+        .final-topline h2 {
+          margin: 0;
+          font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
+          font-size: clamp(46px, 5vw, 84px);
+          line-height: 0.86;
+          font-weight: 900;
+          font-style: italic;
+          text-transform: uppercase;
+          letter-spacing: 0.025em;
+          color: white;
+        }
+
+        .final-topline p {
+          margin: 10px 0 0;
+          color: rgba(255, 255, 255, 0.72);
+          font-size: clamp(14px, 1.1vw, 18px);
+        }
+
+        .final-date-card {
+          min-width: 230px;
+          padding: 12px 22px;
+          border: 2px solid var(--gold);
+          background: rgba(2, 9, 17, 0.72);
+          text-align: center;
+          transform: skewX(-10deg);
+          box-shadow: inset 0 0 40px rgba(255, 194, 42, 0.06);
+        }
+
+        .final-date-card strong {
+          display: block;
+          font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
+          font-size: clamp(36px, 3.1vw, 52px);
+          font-weight: 900;
+          line-height: 0.86;
+          color: white;
+        }
+
+        .final-date-card span {
+          display: block;
+          margin-top: 9px;
+          color: var(--gold);
+          font-size: 12px;
+          font-weight: 800;
+          line-height: 1.15;
+          text-transform: uppercase;
+          transform: skewX(10deg);
+        }
+
+        .final-card {
+          position: relative;
+          min-height: 0;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          background:
+            radial-gradient(circle at 50% 0%, rgba(255, 194, 42, 0.16), transparent 42%),
+            linear-gradient(180deg, rgba(7, 20, 34, 0.98), rgba(5, 16, 28, 0.94));
+          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42), inset 0 0 80px rgba(255, 255, 255, 0.03);
+          clip-path: polygon(1.5% 0, 100% 0, 100% 91%, 97.5% 100%, 0 100%, 0 6%);
+          overflow: hidden;
+          display: grid;
+          grid-template-rows: auto 1fr auto;
+          padding: 28px 34px 30px;
+        }
+
+        .final-card::before {
+          content: '';
+          position: absolute;
+          inset: 0 auto auto 0;
+          width: 55%;
+          height: 8px;
+          background: linear-gradient(90deg, var(--gold), transparent);
+        }
+
+        .final-status-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 22px;
+          color: rgba(255, 255, 255, 0.74);
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.045em;
+        }
+
+        .final-status-row strong {
+          color: var(--gold);
+        }
+
+        .final-score-row {
+          display: grid;
+          grid-template-columns: minmax(230px, 1fr) minmax(245px, 0.66fr) minmax(230px, 1fr);
+          align-items: center;
+          gap: 28px;
+          min-height: 270px;
+        }
+
+        .final-score-row .team-block {
+          min-width: 0;
+          align-items: center;
+          gap: 20px;
+        }
+
+        .final-score-row .team-block.left {
+          justify-content: flex-start;
+        }
+
+        .final-score-row .team-block.right {
+          justify-content: flex-end;
+        }
+
+        .final-score-row .team-badge {
+          width: clamp(82px, 6.5vw, 118px);
+          height: clamp(82px, 6.5vw, 118px);
+        }
+
+        .final-score-row .team-badge svg {
+          width: 66%;
+          height: 66%;
+        }
+
+        .final-score-row .team-name strong {
+          font-size: clamp(46px, 4.7vw, 80px);
+          line-height: 0.82;
+        }
+
+        .final-score-row .team-name span {
+          font-size: clamp(28px, 2.4vw, 44px);
+          line-height: 0.95;
+        }
+
+        .final-score-core {
+          height: clamp(140px, 18vh, 210px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: clamp(14px, 1.6vw, 28px);
+          border: 1px solid rgba(255, 194, 42, 0.34);
+          background: radial-gradient(circle at 50% 45%, rgba(255, 134, 25, 0.14), rgba(3, 11, 20, 0.86));
+          box-shadow: inset 0 0 55px rgba(255, 194, 42, 0.06), 0 22px 60px rgba(0, 0, 0, 0.3);
+          clip-path: polygon(9% 0, 91% 0, 100% 50%, 91% 100%, 9% 100%, 0 50%);
+        }
+
+        .final-score-core span {
+          font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
+          font-size: clamp(96px, 11vw, 180px);
+          font-weight: 900;
+          font-style: italic;
+          line-height: 0.82;
+          color: white;
+          text-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        }
+
+        .final-score-core em {
+          font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
+          font-size: clamp(36px, 3.4vw, 58px);
+          font-weight: 900;
+          font-style: italic;
+          color: var(--orange);
+        }
+
+        .final-meta-grid {
+          display: grid;
+          grid-template-columns: 1.25fr 0.85fr 0.85fr;
+          gap: 14px;
+        }
+
+        .final-meta-grid .meta-item {
+          min-height: 86px;
+        }
+
+        .final-waiting-card {
+          min-height: 360px;
+          display: grid;
+          place-items: center;
+          text-align: center;
+          color: rgba(255, 255, 255, 0.72);
+        }
+
+        .final-waiting-card h3 {
+          margin: 0;
+          font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
+          font-size: clamp(48px, 5vw, 86px);
+          font-style: italic;
+          text-transform: uppercase;
+          color: white;
+        }
+
+        .final-ranking-panel .ranking-list-animated {
           animation: rankingSwapIn 760ms cubic-bezier(0.18, 0.72, 0.18, 1) both;
         }
 
-        .ranking-list-animated .ranking-item {
+        .final-ranking-panel .ranking-list-animated .ranking-item {
           animation: rankingItemIn 620ms cubic-bezier(0.18, 0.72, 0.18, 1) both;
         }
 
-        .ranking-list-animated .ranking-item:nth-child(1) { animation-delay: 0ms; }
-        .ranking-list-animated .ranking-item:nth-child(2) { animation-delay: 55ms; }
-        .ranking-list-animated .ranking-item:nth-child(3) { animation-delay: 110ms; }
-        .ranking-list-animated .ranking-item:nth-child(4) { animation-delay: 165ms; }
-        .ranking-list-animated .ranking-item:nth-child(5) { animation-delay: 220ms; }
+        .final-ranking-panel .ranking-list-animated .ranking-item:nth-child(1) { animation-delay: 0ms; }
+        .final-ranking-panel .ranking-list-animated .ranking-item:nth-child(2) { animation-delay: 55ms; }
+        .final-ranking-panel .ranking-list-animated .ranking-item:nth-child(3) { animation-delay: 110ms; }
+        .final-ranking-panel .ranking-list-animated .ranking-item:nth-child(4) { animation-delay: 165ms; }
+        .final-ranking-panel .ranking-list-animated .ranking-item:nth-child(5) { animation-delay: 220ms; }
 
         @keyframes rankingSwapIn {
           from {
@@ -237,32 +482,40 @@ export default function FinalPage() {
       `}</style>
 
       <div className="background-grid" />
-      <Header updatedAt={payload.updatedAt} />
+      <Header updatedAt={data.updatedAt} />
 
-      <section className="stage">
-        <div className="main-column">
-          <div className="headline-card">
+      <section className="final-stage">
+        <div className="final-main">
+          <div className="final-topline">
             <div>
-              <h2>VALE VAGA NA GRANDE FINAL</h2>
-              <p>Placar dos confrontos = contratos&nbsp;&nbsp;|&nbsp;&nbsp;Ranking geral = valor produzido</p>
+              <h2>GRANDE FINAL</h2>
+              <p>Um jogo. Dois finalistas. Cada contrato pode decidir a Copa das Colmeias.</p>
             </div>
-            <span className="date-pill">{payload.headlineDate}</span>
+            <div className="final-date-card">
+              <strong>{finalDate}</strong>
+              <span>{scheduleNote}</span>
+            </div>
           </div>
 
-          <div className="matches-stack">
-            {payload.matches.slice(0, 2).map((match) => (
-              <MatchCard key={match.id} match={match} />
-            ))}
-          </div>
+          {finalMatch ? (
+            <FinalMatchCard match={finalMatch} />
+          ) : (
+            <div className="final-card final-waiting-card">
+              <div>
+                <h3>Aguardando finalistas</h3>
+                <p>Assim que a aba de placar receber a linha da FINAL, este painel passa a mostrar o confronto decisivo.</p>
+              </div>
+            </div>
+          )}
         </div>
 
-        <aside className="pressure-panel">
-          <div className="panel-title"><span /> PAINEL DE PRESSÃO</div>
+        <aside className="pressure-panel final-ranking-panel">
+          <div className="panel-title"><span /> CAMINHO DO TÍTULO</div>
           <div className="transmission-card">
             <div className="signal-icon">◉</div>
             <div>
-              <strong>Transmissão interna</strong>
-              <small>cada contrato muda o jogo.</small>
+              <strong>Final ao vivo</strong>
+              <small>vale TV e título da Copa.</small>
             </div>
             <LivePill compact />
           </div>
@@ -270,7 +523,7 @@ export default function FinalPage() {
           <div className="ranking-heading">
             <h3>TOP 10 GERAL</h3>
             <p>
-              <strong>{rankingWindowLabel}</strong> • Ranking por <strong>VALOR</strong> produzido, não por contratos.
+              <strong>{rankingWindowLabel}</strong> • Ranking por <strong>VALOR</strong> produzido.
             </p>
           </div>
 
@@ -283,8 +536,8 @@ export default function FinalPage() {
           <div className="tv-status-card">
             <div className="monitor-icon"><span /></div>
             <div>
-              <strong>PAINEL DA LOJA</strong>
-              <small>exibição interna em tempo real</small>
+              <strong>DISPUTA FINAL</strong>
+              <small>placar principal por contratos</small>
             </div>
           </div>
         </aside>
@@ -307,6 +560,39 @@ export default function FinalPage() {
   );
 }
 
+function FinalMatchCard({ match }: { match: Match }) {
+  const advancing = normalizeText(match.advancing);
+  const leftAdvancing = advancing.includes(normalizeText(match.left.name).split(' ')[0]);
+  const rightAdvancing = advancing.includes(normalizeText(match.right.name).split(' ')[0]);
+  const leaderLabel = match.leftScore === match.rightScore ? 'Decisão parcial por valor' : 'Campeã parcial';
+  const status = match.leftScore === match.rightScore ? 'DESEMPATE POR VALOR' : 'VANTAGEM POR CONTRATOS';
+
+  return (
+    <article className={`final-card ${match.statusType}`}>
+      <div className="final-status-row">
+        <span><strong>FINAL</strong> • {status}</span>
+        <span>{match.leftScore === match.rightScore ? 'Empate no placar' : match.distance}</span>
+      </div>
+
+      <div className="final-score-row">
+        <TeamBlock team={match.left} align="left" advancing={leftAdvancing} />
+        <div className="final-score-core">
+          <span>{match.leftScore}</span>
+          <em>x</em>
+          <span>{match.rightScore}</span>
+        </div>
+        <TeamBlock team={match.right} align="right" advancing={rightAdvancing} />
+      </div>
+
+      <div className="final-meta-grid">
+        <MetaItem label={leaderLabel} value={match.advancing} highlight />
+        <MetaItem label="Critério atual" value={match.criterion} />
+        <MetaItem label="Distância" value={match.distance} highlight={match.distance.includes('+')} />
+      </div>
+    </article>
+  );
+}
+
 function Header({ updatedAt }: { updatedAt: string }) {
   return (
     <header className="topbar">
@@ -314,7 +600,7 @@ function Header({ updatedAt }: { updatedAt: string }) {
         <div className="brand-mark"><HoneyIcon /></div>
         <div>
           <h1>COPA DAS COLMEIAS</h1>
-          <p>SEMIFINAL AO VIVO • DISPUTA POR CONTRATOS</p>
+          <p>GRANDE FINAL AO VIVO • DISPUTA POR CONTRATOS</p>
         </div>
       </div>
       <LivePill />
@@ -323,35 +609,6 @@ function Header({ updatedAt }: { updatedAt: string }) {
         Atualizado às {updatedAt}
       </div>
     </header>
-  );
-}
-
-function MatchCard({ match }: { match: Match }) {
-  const advancing = normalizeText(match.advancing);
-  const leftAdvancing = advancing.includes(normalizeText(match.left.name).split(' ')[0]);
-  const rightAdvancing = advancing.includes(normalizeText(match.right.name).split(' ')[0]);
-
-  return (
-    <article className={`match-card ${match.statusType}`}>
-      <div className="match-tab">{match.id}</div>
-      <div className="status-pill">{match.status}</div>
-
-      <div className="score-row">
-        <TeamBlock team={match.left} align="left" advancing={leftAdvancing} />
-        <div className="score-core">
-          <span>{match.leftScore}</span>
-          <em>x</em>
-          <span>{match.rightScore}</span>
-        </div>
-        <TeamBlock team={match.right} align="right" advancing={rightAdvancing} />
-      </div>
-
-      <div className="match-meta">
-        <MetaItem label="Classificando agora" value={match.advancing} highlight />
-        <MetaItem label="Critério atual" value={match.criterion} />
-        <MetaItem label="Distância" value={match.distance} highlight={match.distance.includes('+')} />
-      </div>
-    </article>
   );
 }
 
@@ -422,7 +679,7 @@ function GoalOverlay({ goal }: { goal: GoalEvent }) {
         </div>
         <div className="goal-status">
           <em><HoneyIcon /></em>
-          <span>SEMIFINAL AO VIVO</span>
+          <span>GRANDE FINAL AO VIVO</span>
         </div>
         <p>cada contrato <strong>muda</strong> o jogo.</p>
       </div>
@@ -438,6 +695,14 @@ function HoneyIcon() {
       <path d="M13 18 32 7l19 11M13 46l19 11 19-11" />
     </svg>
   );
+}
+
+function getFinalMatch(matches: Match[]) {
+  return matches.find((match) => normalizeText(match.id).includes('final')) ?? matches[0] ?? null;
+}
+
+function isPortoSeguro(value: string) {
+  return normalizeText(value).includes('porto seguro');
 }
 
 function normalizeText(value: string) {
