@@ -51,11 +51,14 @@ type GoalEvent = {
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
 const STORAGE_KEY = 'copa-colmeias-last-scores-v1';
+const RANKING_ROTATE_MS = 18000;
 
 export default function Home() {
   const [data, setData] = useState<PanelPayload | null>(null);
   const [activeGoal, setActiveGoal] = useState<GoalEvent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [rankingPage, setRankingPage] = useState(0);
+
   const previousScores = useRef<Record<string, { left: number; right: number }> | null>(null);
   const goalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -90,12 +93,28 @@ export default function Home() {
     };
 
     window.addEventListener('keydown', handleKey);
+
     return () => {
       window.clearInterval(interval);
       window.removeEventListener('keydown', handleKey);
       if (goalTimer.current) clearTimeout(goalTimer.current);
     };
   }, [loadData]);
+
+  useEffect(() => {
+    if (!data || data.rankingTop.length <= 5) {
+      setRankingPage(0);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setRankingPage((prev) => (prev === 0 ? 1 : 0));
+    }, RANKING_ROTATE_MS);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [data]);
 
   const evaluateGoal = (payload: PanelPayload) => {
     const nextScores: Record<string, { left: number; right: number }> = {};
@@ -149,6 +168,16 @@ export default function Home() {
       .join('   •   ');
   }, [data]);
 
+  const visibleRanking = useMemo(() => {
+    if (!data) return [];
+    const start = rankingPage * 5;
+    return data.rankingTop.slice(start, start + 5);
+  }, [data, rankingPage]);
+
+  const rankingWindowLabel = useMemo(() => {
+    return rankingPage === 0 ? '1º ao 5º' : '6º ao 10º';
+  }, [rankingPage]);
+
   if (!data && isLoading) {
     return (
       <main className="screen loading-screen">
@@ -198,11 +227,13 @@ export default function Home() {
 
           <div className="ranking-heading">
             <h3>TOP 10 GERAL</h3>
-            <p>Ranking por <strong>VALOR</strong> produzido, não por contratos.</p>
+            <p>
+              <strong>{rankingWindowLabel}</strong> • Ranking por <strong>VALOR</strong> produzido, não por contratos.
+            </p>
           </div>
 
           <div className="ranking-list">
-            {payload.rankingTop.slice(0, 5).map((row) => (
+            {visibleRanking.map((row) => (
               <RankingItem key={`${row.position}-${row.name}`} row={row} />
             ))}
           </div>
@@ -220,10 +251,10 @@ export default function Home() {
       <footer className="ticker-bar">
         <div className="ticker-label">
           <HoneyIcon />
-          <strong>TOP 10 GERAL</strong>
+          <strong>11º AO 20º</strong>
         </div>
         <LivePill compact />
-        <div className="ticker-track" aria-label="Continuação do Top 10 Geral">
+        <div className="ticker-track" aria-label="Ranking geral do 11º ao 20º lugar">
           <div className="ticker-content">{tickerText}</div>
         </div>
         <div className="footer-brand"><strong>CREDVIX</strong><span>•</span>Cada contrato é um gol</div>
