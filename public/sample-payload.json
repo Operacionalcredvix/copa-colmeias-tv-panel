@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "updatedAt": "14h32",
+  "headlineDate": "30/06",
+  "matches": [
+    {
+      "id": "SF1",
+      "status": "VANTAGEM POR CONTRATOS",
+      "statusType": "contracts",
+      "left": { "name": "Cariacica Campo Grande", "primary": "CARIACICA", "secondary": "CAMPO GRANDE", "tone": "green", "badge": "mountain" },
+      "right": { "name": "Cuiabá Prainha", "primary": "CUIABÁ", "secondary": "PRAINHA", "tone": "blue", "badge": "city" },
+      "leftScore": 4,
+      "rightScore": 2,
+      "advancing": "Cariacica Campo Grande",
+      "criterion": "Contratos",
+      "distance": "+2 contratos"
+    },
+    {
+      "id": "SF2",
+      "status": "DESEMPATE POR VALOR",
+      "statusType": "value",
+      "left": { "name": "Vitória Praia do Canto", "primary": "VITÓRIA", "secondary": "PRAIA DO CANTO", "tone": "gold", "badge": "landmark" },
+      "right": { "name": "Linhares Centro", "primary": "LINHARES", "secondary": "CENTRO", "tone": "blue", "badge": "bridge" },
+      "leftScore": 3,
+      "rightScore": 3,
+      "advancing": "Vitória Praia do Canto",
+      "criterion": "Valor produzido",
+      "distance": "Empate"
+    }
+  ],
+  "rankingTop": [
+    { "position": 1, "name": "Cuiabá Prainha", "value": "R$ 68,4 mil" },
+    { "position": 2, "name": "Linhares Centro", "value": "R$ 61,7 mil" },
+    { "position": 3, "name": "Cariacica C. Grande", "value": "R$ 59,2 mil" },
+    { "position": 4, "name": "Vitória Praia Canto", "value": "R$ 57,8 mil" },
+    { "position": 5, "name": "Teixeira de Freitas", "value": "R$ 52,6 mil" }
+  ],
+  "ticker": [
+    { "position": 10, "name": "Cachoeiro Centro", "value": "R$ 44,3 mil" },
+    { "position": 11, "name": "Teixeira de Freitas", "value": "R$ 42,9 mil" },
+    { "position": 12, "name": "Serra Laranjeiras", "value": "R$ 41,8 mil" },
+    { "position": 13, "name": "Vila Velha Centro", "value": "" }
+  ]
+}
