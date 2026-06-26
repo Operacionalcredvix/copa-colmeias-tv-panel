@@ -51,7 +51,7 @@ type GoalEvent = {
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
 const STORAGE_KEY = 'copa-colmeias-last-scores-v1';
-const RANKING_ROTATE_MS = 18000;
+const RANKING_ROTATE_MS = 7000;
 
 export default function Home() {
   const [data, setData] = useState<PanelPayload | null>(null);
@@ -101,8 +101,10 @@ export default function Home() {
     };
   }, [loadData]);
 
+  const hasRankingSecondPage = (data?.rankingTop.length ?? 0) > 5;
+
   useEffect(() => {
-    if (!data || data.rankingTop.length <= 5) {
+    if (!hasRankingSecondPage) {
       setRankingPage(0);
       return;
     }
@@ -114,7 +116,7 @@ export default function Home() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [data]);
+  }, [hasRankingSecondPage]);
 
   const evaluateGoal = (payload: PanelPayload) => {
     const nextScores: Record<string, { left: number; right: number }> = {};
@@ -194,6 +196,46 @@ export default function Home() {
 
   return (
     <main className={`screen ${activeGoal ? 'goal-active' : ''}`}>
+      <style jsx global>{`
+        .ranking-list-animated {
+          animation: rankingSwapIn 760ms cubic-bezier(0.18, 0.72, 0.18, 1) both;
+        }
+
+        .ranking-list-animated .ranking-item {
+          animation: rankingItemIn 620ms cubic-bezier(0.18, 0.72, 0.18, 1) both;
+        }
+
+        .ranking-list-animated .ranking-item:nth-child(1) { animation-delay: 0ms; }
+        .ranking-list-animated .ranking-item:nth-child(2) { animation-delay: 55ms; }
+        .ranking-list-animated .ranking-item:nth-child(3) { animation-delay: 110ms; }
+        .ranking-list-animated .ranking-item:nth-child(4) { animation-delay: 165ms; }
+        .ranking-list-animated .ranking-item:nth-child(5) { animation-delay: 220ms; }
+
+        @keyframes rankingSwapIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px) scale(0.985);
+            filter: blur(5px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: blur(0);
+          }
+        }
+
+        @keyframes rankingItemIn {
+          from {
+            opacity: 0;
+            transform: translateX(14px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+      `}</style>
+
       <div className="background-grid" />
       <Header updatedAt={payload.updatedAt} />
 
@@ -232,7 +274,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="ranking-list">
+          <div key={rankingPage} className="ranking-list ranking-list-animated">
             {visibleRanking.map((row) => (
               <RankingItem key={`${row.position}-${row.name}`} row={row} />
             ))}
