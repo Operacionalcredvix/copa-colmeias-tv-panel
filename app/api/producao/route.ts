@@ -74,7 +74,25 @@ type ProductionPayload = {
   regionalPerformance: RegionalRow[];
   alerts: AlertRow[];
   ticker: string[];
+  diagnostics?: {
+    cache: 'hit' | 'stale' | 'miss' | 'mock';
+    responseMs: number;
+    fetchedAt?: string;
+    warning?: string;
+  };
+  warning?: string;
 };
+
+const CACHE_TTL_MS = 120000;
+const STALE_TTL_MS = 900000;
+const FETCH_TIMEOUT_MS = 8000;
+
+let memoryCache: {
+  payload: ProductionPayload;
+  fetchedAt: number;
+} | null = null;
+
+let refreshPromise: Promise<ProductionPayload> | null = null;
 
 const MOCK_PAYLOAD: ProductionPayload = {
   ok: true,
@@ -160,43 +178,105 @@ const MOCK_PAYLOAD: ProductionPayload = {
 };
 
 export async function GET() {
+  const startedAt = Date.now();
   const appsScriptUrl = process.env.APPS_SCRIPT_PRODUCAO_URL;
 
   if (!appsScriptUrl) {
-    return jsonNoStore(MOCK_PAYLOAD);
+    return jsonCached(withDiagnostics(MOCK_PAYLOAD, 'mock', startedAt, 'APPS_SCRIPT_PRODUCAO_URL nao configurada'));
   }
+
+  const now = Date.now();
+  const cacheAge = memoryCache ? now - memoryCache.fetchedAt : Number.POSITIVE_INFINITY;
+
+  if (memoryCache && cacheAge <= CACHE_TTL_MS) {
+    return jsonCached(withDiagnostics(memoryCache.payload, 'hit', startedAt));
+  }
+
+  if (memoryCache && cacheAge <= STALE_TTL_MS) {
+    void refreshCache(appsScriptUrl);
+    return jsonCached(withDiagnostics(memoryCache.payload, 'stale', startedAt));
+  }
+
+  try {
+    const payload = await refreshCache(appsScriptUrl);
+    return jsonCached(withDiagnostics(payload, 'miss', startedAt));
+  } catch (error) {
+    const warning = error instanceof Error ? error.message : 'Erro desconhecido ao consultar Apps Script';
+
+    if (memoryCache) {
+      return jsonCached(withDiagnostics(memoryCache.payload, 'stale', startedAt, warning));
+    }
+
+    return jsonCached(withDiagnostics({
+      ...MOCK_PAYLOAD,
+      source: 'mock',
+      warning
+    }, 'mock', startedAt, warning));
+  }
+}
+
+async function refreshCache(appsScriptUrl: string) {
+  if (!refreshPromise) {
+    refreshPromise = fetchAppsScriptPayload(appsScriptUrl)
+      .then((payload) => {
+        memoryCache = {
+          payload,
+          fetchedAt: Date.now()
+        };
+        return payload;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
+
+async function fetchAppsScriptPayload(appsScriptUrl: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
     const response = await fetch(appsScriptUrl, {
       method: 'GET',
       cache: 'no-store',
       redirect: 'follow',
+      signal: controller.signal,
       headers: { Accept: 'application/json' }
     });
 
     if (!response.ok) {
-      return jsonNoStore({ ...MOCK_PAYLOAD, source: 'mock', warning: `Apps Script respondeu HTTP ${response.status}` });
+      throw new Error(`Apps Script respondeu HTTP ${response.status}`);
     }
 
     const raw = await response.json();
-    return jsonNoStore(normalizePayload(raw));
-  } catch (error) {
-    return jsonNoStore({
-      ...MOCK_PAYLOAD,
-      source: 'mock',
-      warning: error instanceof Error ? error.message : 'Erro desconhecido ao consultar Apps Script'
-    });
+    return normalizePayload(raw);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-function jsonNoStore(payload: unknown) {
+function jsonCached(payload: unknown) {
   return NextResponse.json(payload, {
     headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-      Pragma: 'no-cache',
-      Expires: '0'
+      'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+      'CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+      'Vercel-CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300'
     }
   });
+}
+
+function withDiagnostics(payload: ProductionPayload, cache: 'hit' | 'stale' | 'miss' | 'mock', startedAt: number, warning?: string): ProductionPayload {
+  return {
+    ...payload,
+    diagnostics: {
+      cache,
+      responseMs: Date.now() - startedAt,
+      fetchedAt: memoryCache ? new Date(memoryCache.fetchedAt).toISOString() : undefined,
+      warning
+    }
+  };
 }
 
 function normalizePayload(raw: unknown): ProductionPayload {
