@@ -85,7 +85,7 @@ type ProductionPayload = {
 
 const CACHE_TTL_MS = 120000;
 const STALE_TTL_MS = 900000;
-const FETCH_TIMEOUT_MS = 8000;
+const FETCH_TIMEOUT_MS = 20000;
 
 let memoryCache: {
   payload: ProductionPayload;
@@ -182,7 +182,7 @@ export async function GET() {
   const appsScriptUrl = process.env.APPS_SCRIPT_PRODUCAO_URL;
 
   if (!appsScriptUrl) {
-    return jsonCached(withDiagnostics(MOCK_PAYLOAD, 'mock', startedAt, 'APPS_SCRIPT_PRODUCAO_URL nao configurada'));
+    return jsonNoStore(withDiagnostics(MOCK_PAYLOAD, 'mock', startedAt, 'APPS_SCRIPT_PRODUCAO_URL nao configurada'));
   }
 
   const now = Date.now();
@@ -207,7 +207,7 @@ export async function GET() {
       return jsonCached(withDiagnostics(memoryCache.payload, 'stale', startedAt, warning));
     }
 
-    return jsonCached(withDiagnostics({
+    return jsonNoStore(withDiagnostics({
       ...MOCK_PAYLOAD,
       source: 'mock',
       warning
@@ -263,6 +263,16 @@ function jsonCached(payload: unknown) {
       'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
       'CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
       'Vercel-CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300'
+    }
+  });
+}
+
+function jsonNoStore(payload: unknown) {
+  return NextResponse.json(payload, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0'
     }
   });
 }
