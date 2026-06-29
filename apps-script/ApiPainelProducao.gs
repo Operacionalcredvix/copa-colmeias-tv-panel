@@ -1,24 +1,102 @@
 /**
  * Painel de Produção CredVix — API JSON para TV
  *
- * IMPORTANTE:
- * Este arquivo NÃO cria outro doGet, para não conflitar com o ApiPainelTV.gs.
- * Cole este arquivo no Apps Script e, no doGet(e) existente, adicione a rota:
+ * Este arquivo NÃO cria outro doGet.
+ * O doGet do ApiPainelTV.gs deve chamar painelProducaoGetPayload_()
+ * quando a URL vier com &painel=producao.
  *
- * if (String(e && e.parameter && e.parameter.painel || '').toLowerCase() === 'producao') {
- *   return painelTvJson_(painelProducaoGetPayload_());
- * }
- *
- * Depois use na Vercel:
- * APPS_SCRIPT_PRODUCAO_URL = https://script.google.com/macros/s/SEU_DEPLOY/exec?token=copa-tv-2026-credvix&painel=producao
+ * Versão com cache persistente:
+ * - A TV não espera a planilha recalcular a cada abertura.
+ * - A função painelProducaoAquecerCache() recalcula e salva o cache.
+ * - A função painelProducaoInstalarTriggerCache() cria atualização automática a cada 5 minutos.
  */
 
 const PAINEL_PRODUCAO_SPREADSHEET_ID = '1vE3Ba1D9A5PyjazGuhJ4pk48GPdE4pEjpoQ2GVHiTsw';
 const PAINEL_PRODUCAO_TZ = 'America/Sao_Paulo';
 const PAINEL_PRODUCAO_CACHE_MINUTOS = 30;
+const PAINEL_PRODUCAO_PAYLOAD_CACHE_MINUTOS = 8;
+const PAINEL_PRODUCAO_PAYLOAD_STALE_MINUTOS = 120;
 const PAINEL_PRODUCAO_META_DIA = 340000;
 
+const PAINEL_PRODUCAO_CACHE_KEY = 'PAINEL_PRODUCAO_PAYLOAD_CACHE_V2';
+const PAINEL_PRODUCAO_CACHE_BACKUP_KEY = 'PAINEL_PRODUCAO_PAYLOAD_CACHE_BACKUP_V2';
+
 function painelProducaoGetPayload_() {
+  return painelProducaoGetPayloadComCache_(false);
+}
+
+function painelProducaoAquecerCache() {
+  const payload = painelProducaoGetPayloadComCache_(true);
+  Logger.log(JSON.stringify(payload, null, 2));
+}
+
+function painelProducaoInstalarTriggerCache() {
+  painelProducaoRemoverTriggersCache_();
+
+  ScriptApp
+    .newTrigger('painelProducaoAquecerCache')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+
+  Logger.log('Trigger instalado: painelProducaoAquecerCache a cada 5 minutos.');
+}
+
+function painelProducaoRemoverTriggersCache_() {
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === 'painelProducaoAquecerCache') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+}
+
+function painelProducaoGetPayloadComCache_(forceRefresh) {
+  const startedAt = new Date().getTime();
+
+  if (!forceRefresh) {
+    const cached = painelProducaoLerPayloadCache_();
+
+    if (cached && cached.payload) {
+      const ageMin = painelProducaoIdadeMinutos_(cached.savedAtIso);
+
+      if (ageMin <= PAINEL_PRODUCAO_PAYLOAD_STALE_MINUTOS) {
+        const status = ageMin <= PAINEL_PRODUCAO_PAYLOAD_CACHE_MINUTOS ? 'hit' : 'stale';
+        return painelProducaoComDiagnostico_(cached.payload, status, startedAt, cached.savedAtIso, null);
+      }
+    }
+  }
+
+  const lock = LockService.getScriptLock();
+  const locked = lock.tryLock(1500);
+
+  if (!locked) {
+    const stale = painelProducaoLerPayloadCache_();
+
+    if (stale && stale.payload) {
+      return painelProducaoComDiagnostico_(stale.payload, 'stale-lock', startedAt, stale.savedAtIso, 'Outro cálculo estava em andamento. Retornando último cache disponível.');
+    }
+  }
+
+  try {
+    const payload = painelProducaoBuildPayload_();
+    painelProducaoSalvarPayloadCache_(payload);
+    return painelProducaoComDiagnostico_(payload, 'refresh', startedAt, new Date().toISOString(), null);
+  } catch (err) {
+    const stale = painelProducaoLerPayloadCache_();
+
+    if (stale && stale.payload) {
+      return painelProducaoComDiagnostico_(stale.payload, 'stale-error', startedAt, stale.savedAtIso, err && err.message ? err.message : String(err));
+    }
+
+    throw err;
+  } finally {
+    if (locked) {
+      lock.releaseLock();
+    }
+  }
+}
+
+function painelProducaoBuildPayload_() {
   const ss = SpreadsheetApp.openById(PAINEL_PRODUCAO_SPREADSHEET_ID);
   const shBase = ss.getSheetByName('BASE_COPA') || ss.getSheetByName('base_propostas_pagas');
   const shMapa = ss.getSheetByName('MAPA_LOJAS');
@@ -29,7 +107,7 @@ function painelProducaoGetPayload_() {
 
   const now = new Date();
   const todayKey = Utilities.formatDate(now, PAINEL_PRODUCAO_TZ, 'yyyy-MM-dd');
-  const updatedAt = Utilities.formatDate(now, PAINEL_PRODUCAO_TZ, "HH'h'mm");
+  const updatedAt = Utilities.formatDate(now, PAINEL_PRODUCAO_TZ, 'HH:mm');
 
   const base = painelProducaoLerBase_(shBase);
   const mapa = shMapa ? painelProducaoLerMapaLojas_(shMapa) : { lojas: [], regionalPorLoja: {} };
@@ -63,10 +141,70 @@ function painelProducaoGetPayload_() {
   };
 
   payloadBase.aiReading = painelProducaoGetAiReading_(payloadBase);
-
   painelProducaoSalvarSnapshot_(porLoja);
 
   return payloadBase;
+}
+
+function painelProducaoLerPayloadCache_() {
+  const cache = CacheService.getScriptCache();
+  const props = PropertiesService.getScriptProperties();
+  const rawCache = cache.get(PAINEL_PRODUCAO_CACHE_KEY);
+  const rawBackup = props.getProperty(PAINEL_PRODUCAO_CACHE_BACKUP_KEY);
+  const raw = rawCache || rawBackup;
+
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+function painelProducaoSalvarPayloadCache_(payload) {
+  const wrapper = {
+    savedAtIso: new Date().toISOString(),
+    payload: payload
+  };
+
+  const raw = JSON.stringify(wrapper);
+
+  try {
+    CacheService.getScriptCache().put(
+      PAINEL_PRODUCAO_CACHE_KEY,
+      raw,
+      PAINEL_PRODUCAO_PAYLOAD_STALE_MINUTOS * 60
+    );
+  } catch (err) {
+    // Se o CacheService falhar, segue com backup em propriedades.
+  }
+
+  try {
+    PropertiesService.getScriptProperties().setProperty(PAINEL_PRODUCAO_CACHE_BACKUP_KEY, raw);
+  } catch (err) {
+    // Se o payload ultrapassar o limite de propriedades, o CacheService ainda fica como principal.
+  }
+}
+
+function painelProducaoComDiagnostico_(payload, cacheStatus, startedAt, savedAtIso, warning) {
+  const copy = JSON.parse(JSON.stringify(payload));
+
+  copy.diagnostics = {
+    appsScriptCache: cacheStatus,
+    appsScriptResponseMs: new Date().getTime() - startedAt,
+    appsScriptCacheSavedAt: savedAtIso || null,
+    appsScriptWarning: warning || null
+  };
+
+  return copy;
+}
+
+function painelProducaoIdadeMinutos_(iso) {
+  if (!iso) return 999999;
+  return (new Date().getTime() - new Date(iso).getTime()) / 60000;
 }
 
 function painelProducaoLerBase_(sh) {
@@ -76,17 +214,19 @@ function painelProducaoLerBase_(sh) {
     return { headers: {}, rows: [] };
   }
 
-  const headerRow = values[0].map(function (h) {
+  const headerRow = values[0].map(function(h) {
     return painelProducaoNormalizarTexto_(h);
   });
 
   const headers = {};
-  headerRow.forEach(function (h, idx) {
+  headerRow.forEach(function(h, idx) {
     if (h) headers[h] = idx;
   });
 
-  const rows = values.slice(1);
-  return { headers: headers, rows: rows };
+  return {
+    headers: headers,
+    rows: values.slice(1)
+  };
 }
 
 function painelProducaoLerMapaLojas_(sh) {
@@ -97,7 +237,7 @@ function painelProducaoLerMapaLojas_(sh) {
   }
 
   const headers = {};
-  values[0].forEach(function (h, idx) {
+  values[0].forEach(function(h, idx) {
     headers[painelProducaoNormalizarTexto_(h)] = idx;
   });
 
@@ -106,7 +246,7 @@ function painelProducaoLerMapaLojas_(sh) {
   const lojas = [];
   const regionalPorLoja = {};
 
-  values.slice(1).forEach(function (row) {
+  values.slice(1).forEach(function(row) {
     const loja = painelProducaoTexto_(row[idxLoja]);
     if (!loja) return;
 
@@ -126,7 +266,7 @@ function painelProducaoFiltrarHoje_(rows, headers, todayKey) {
   const idxValor = painelProducaoPrimeiroIndice_(headers, ['valor', 'producao']);
 
   return rows
-    .filter(function (row) {
+    .filter(function(row) {
       const dataKey = painelProducaoDateKey_(row[idxPagamento]);
       if (dataKey !== todayKey) return false;
 
@@ -146,7 +286,7 @@ function painelProducaoFiltrarHoje_(rows, headers, todayKey) {
 
       return true;
     })
-    .map(function (row) {
+    .map(function(row) {
       return {
         loja: painelProducaoTexto_(row[idxLojaOficial]),
         proposta: painelProducaoTexto_(row[idxProposta]),
@@ -163,7 +303,7 @@ function painelProducaoListarLojas_(lojasMapa, rows, headers) {
   const idxLoja = painelProducaoPrimeiroIndice_(headers, ['loja_oficial', 'loja oficial', 'loja']);
   const lojas = [];
 
-  rows.forEach(function (row) {
+  rows.forEach(function(row) {
     const loja = painelProducaoTexto_(row[idxLoja]);
     if (loja && lojas.indexOf(loja) === -1) lojas.push(loja);
   });
@@ -175,7 +315,7 @@ function painelProducaoAgruparPorLoja_(registros) {
   const mapa = {};
   const propostasPorLoja = {};
 
-  registros.forEach(function (item) {
+  registros.forEach(function(item) {
     if (!mapa[item.loja]) {
       mapa[item.loja] = { name: item.loja, contracts: 0, valueNumber: 0 };
       propostasPorLoja[item.loja] = {};
@@ -195,7 +335,7 @@ function painelProducaoAgruparPorLoja_(registros) {
 function painelProducaoAgruparPorRegional_(porLoja, lojasOficiais, regionalPorLoja) {
   const mapa = {};
 
-  lojasOficiais.forEach(function (loja) {
+  lojasOficiais.forEach(function(loja) {
     const regional = regionalPorLoja[loja] || 'Sem regional';
 
     if (!mapa[regional]) {
@@ -227,7 +367,7 @@ function painelProducaoMontarResumo_(porLoja, lojasOficiais) {
   let productionNumber = 0;
   let activeStores = 0;
 
-  Object.keys(porLoja).forEach(function (loja) {
+  Object.keys(porLoja).forEach(function(loja) {
     contracts += porLoja[loja].contracts;
     productionNumber += porLoja[loja].valueNumber;
     if (porLoja[loja].contracts > 0) activeStores += 1;
@@ -251,14 +391,14 @@ function painelProducaoMontarResumo_(porLoja, lojasOficiais) {
 
 function painelProducaoMontarTopLojas_(porLoja) {
   return Object.keys(porLoja)
-    .map(function (loja) {
+    .map(function(loja) {
       return porLoja[loja];
     })
-    .sort(function (a, b) {
+    .sort(function(a, b) {
       return b.valueNumber - a.valueNumber || b.contracts - a.contracts || a.name.localeCompare(b.name);
     })
     .slice(0, 10)
-    .map(function (item, index) {
+    .map(function(item, index) {
       return {
         position: index + 1,
         name: item.name,
@@ -270,7 +410,7 @@ function painelProducaoMontarTopLojas_(porLoja) {
 
 function painelProducaoMontarZeradas_(lojasOficiais, porLoja) {
   return lojasOficiais
-    .filter(function (loja) {
+    .filter(function(loja) {
       return !porLoja[loja] || porLoja[loja].contracts === 0;
     })
     .sort()
@@ -279,7 +419,7 @@ function painelProducaoMontarZeradas_(lojasOficiais, porLoja) {
 
 function painelProducaoMontarRegionais_(porRegional) {
   return Object.keys(porRegional)
-    .map(function (regional) {
+    .map(function(regional) {
       const item = porRegional[regional];
       const ticket = item.contracts ? item.valueNumber / item.contracts : 0;
 
@@ -293,11 +433,11 @@ function painelProducaoMontarRegionais_(porRegional) {
         valueNumber: item.valueNumber
       };
     })
-    .sort(function (a, b) {
+    .sort(function(a, b) {
       return b.valueNumber - a.valueNumber || b.contracts - a.contracts || a.name.localeCompare(b.name);
     })
     .slice(0, 8)
-    .map(function (item) {
+    .map(function(item) {
       delete item.valueNumber;
       return item;
     });
@@ -309,7 +449,7 @@ function painelProducaoCalcularMovers_(porLoja) {
   const anterior = raw ? JSON.parse(raw) : {};
 
   return Object.keys(porLoja)
-    .map(function (loja) {
+    .map(function(loja) {
       const atual = porLoja[loja];
       const prev = anterior[loja] || { contracts: 0, valueNumber: 0 };
       return {
@@ -318,14 +458,14 @@ function painelProducaoCalcularMovers_(porLoja) {
         valueDeltaNumber: Math.max(0, atual.valueNumber - Number(prev.valueNumber || 0))
       };
     })
-    .filter(function (item) {
+    .filter(function(item) {
       return item.contractsDelta > 0 || item.valueDeltaNumber > 0;
     })
-    .sort(function (a, b) {
+    .sort(function(a, b) {
       return b.contractsDelta - a.contractsDelta || b.valueDeltaNumber - a.valueDeltaNumber || a.name.localeCompare(b.name);
     })
     .slice(0, 6)
-    .map(function (item) {
+    .map(function(item) {
       return {
         name: item.name,
         contractsDelta: item.contractsDelta,
@@ -337,7 +477,7 @@ function painelProducaoCalcularMovers_(porLoja) {
 function painelProducaoSalvarSnapshot_(porLoja) {
   const snapshot = {};
 
-  Object.keys(porLoja).forEach(function (loja) {
+  Object.keys(porLoja).forEach(function(loja) {
     snapshot[loja] = {
       contracts: porLoja[loja].contracts,
       valueNumber: porLoja[loja].valueNumber
@@ -358,7 +498,7 @@ function painelProducaoMontarAlertas_(resumo, topStores, zeroStoresList, regiona
     });
   }
 
-  const regionalCritica = regionalPerformance.slice().sort(function (a, b) {
+  const regionalCritica = regionalPerformance.slice().sort(function(a, b) {
     return b.zeroStores - a.zeroStores;
   })[0];
 
@@ -427,7 +567,7 @@ function painelProducaoMontarRitmo_(resumo) {
 function painelProducaoMontarDeltas_(resumo) {
   return {
     contracts: { label: resumo.contracts + ' contratos hoje', tone: resumo.contracts > 0 ? 'positive' : 'neutral' },
-    production: { label: 'produção acumulada', tone: resumo.contracts > 0 ? 'positive' : 'neutral' },
+    production: { label: 'acumulado do dia', tone: resumo.contracts > 0 ? 'positive' : 'neutral' },
     averageTicket: { label: 'ticket do dia', tone: 'neutral' },
     activeStores: { label: resumo.activeStores + ' lojas ativas', tone: resumo.activeStores > 0 ? 'positive' : 'neutral' },
     zeroStores: { label: resumo.zeroStores + ' zeradas', tone: resumo.zeroStores > 0 ? 'negative' : 'positive' },
@@ -444,7 +584,6 @@ function painelProducaoMontarTicker_(resumo, topStores, zeroStoresList, alerts) 
   ticker.push('Lojas zeradas: ' + resumo.zeroStores);
 
   if (topStores[0]) ticker.push('Líder do dia: ' + topStores[0].name + ' — ' + topStores[0].value);
-  if (zeroStoresList.length) ticker.push('Prioridade: reduzir lojas zeradas');
   if (alerts[0]) ticker.push(alerts[0].title + ': ' + alerts[0].description);
 
   return ticker;
