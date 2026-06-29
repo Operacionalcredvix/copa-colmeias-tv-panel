@@ -74,7 +74,7 @@ type ProductionPayload = {
 };
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
-const SCREEN_ROTATE_MS = 16000;
+const SCREEN_ROTATE_MS = 14000;
 
 export default function ProducaoPage() {
   const [data, setData] = useState<ProductionPayload | null>(null);
@@ -87,9 +87,9 @@ export default function ProducaoPage() {
         const response = await fetch('/api/producao', { cache: 'no-store' });
         const payload = (await response.json()) as ProductionPayload;
         setData(payload);
-        setIsLoading(false);
       } catch (error) {
         console.error('Erro ao carregar painel de producao', error);
+      } finally {
         setIsLoading(false);
       }
     };
@@ -115,11 +115,8 @@ export default function ProducaoPage() {
   if (!data && isLoading) {
     return (
       <main className="prod-screen loading-screen">
-        <div className="prod-loader-card">
-          <div className="prod-logo-mark"><HoneyIcon /></div>
-          <h1>PAINEL DE PRODUÇÃO</h1>
-          <p>Carregando dados em tempo real...</p>
-        </div>
+        <style jsx global>{styles}</style>
+        <LoaderCard text="Carregando dados em tempo real..." />
       </main>
     );
   }
@@ -127,11 +124,8 @@ export default function ProducaoPage() {
   if (!data) {
     return (
       <main className="prod-screen loading-screen">
-        <div className="prod-loader-card">
-          <div className="prod-logo-mark"><HoneyIcon /></div>
-          <h1>PAINEL DE PRODUÇÃO</h1>
-          <p>Não foi possível carregar os dados.</p>
-        </div>
+        <style jsx global>{styles}</style>
+        <LoaderCard text="Não foi possível carregar os dados." />
       </main>
     );
   }
@@ -151,9 +145,19 @@ export default function ProducaoPage() {
       <footer className="prod-footer">
         <div className="prod-footer-logo"><HoneyIcon /><strong>CREDVIX</strong></div>
         <div className="prod-ticker-track"><div className="prod-ticker-content">{tickerText}</div></div>
-        <div className="prod-footer-phrase">CADA CONTRATO CONTA PARA O RESULTADO</div>
+        <div className="prod-footer-phrase">CADA CONTRATO CONTA</div>
       </footer>
     </main>
+  );
+}
+
+function LoaderCard({ text }: { text: string }) {
+  return (
+    <div className="prod-loader-card">
+      <div className="prod-logo-mark"><HoneyIcon /></div>
+      <h1>PAINEL DE PRODUÇÃO</h1>
+      <p>{text}</p>
+    </div>
   );
 }
 
@@ -169,7 +173,7 @@ function Header({ updatedAt, screen }: { updatedAt: string; screen: number }) {
         <p>Gestão comercial em tempo real</p>
       </div>
       <div className="prod-update-box">
-        <span>ATUALIZADO ÀS</span>
+        <span>ATUALIZADO</span>
         <strong>{updatedAt}</strong>
         <small><i /> ao vivo</small>
       </div>
@@ -182,31 +186,34 @@ function ExecutiveScreen({ data }: { data: ProductionPayload }) {
 
   return (
     <div className="prod-screen-grid executive-grid">
-      <MetricCard label="Contratos hoje" value={String(s.contracts)} icon="handshake" delta={data.deltas.contracts} />
-      <MetricCard label="Valor produzido" value={s.production} icon="money" delta={data.deltas.production} />
-      <MetricCard label="Ticket médio" value={s.averageTicket} icon="chart" delta={data.deltas.averageTicket} />
-      <MetricCard label="Lojas com produção" value={String(s.activeStores)} icon="store" delta={data.deltas.activeStores} />
-      <MetricCard label="Lojas zeradas" value={String(s.zeroStores)} icon="alertStore" delta={data.deltas.zeroStores} />
-      <MetricCard label="Projeção do dia" value={s.projection} icon="target" delta={data.deltas.projection} />
-
-      <div className="prod-panel rhythm-panel">
-        <div className="prod-panel-title"><span>↗</span> RITMO DO DIA</div>
-        <strong className={`rhythm-label ${data.rhythm.tone}`}>{data.rhythm.label}</strong>
-        <p>{data.rhythm.description}</p>
-        <div className="rhythm-bar"><i style={{ width: `${Math.max(5, Math.min(100, data.rhythm.percent))}%` }} /></div>
+      <div className="metric-grid">
+        <MetricCard label="Contratos hoje" value={String(s.contracts)} icon="CT" delta={data.deltas.contracts} />
+        <MetricCard label="Valor produzido" value={s.production} icon="R$" delta={data.deltas.production} />
+        <MetricCard label="Ticket médio" value={s.averageTicket} icon="TM" delta={data.deltas.averageTicket} />
+        <MetricCard label="Lojas com produção" value={String(s.activeStores)} icon="ON" delta={data.deltas.activeStores} />
+        <MetricCard label="Lojas zeradas" value={String(s.zeroStores)} icon="0" delta={data.deltas.zeroStores} />
+        <MetricCard label="Projeção do dia" value={s.projection} icon="PR" delta={data.deltas.projection} />
       </div>
 
-      <div className="prod-panel ai-panel">
-        <div className="prod-panel-title"><span>◎</span> LEITURA IA</div>
-        <p>{data.aiReading.text}</p>
-        <small>Gerada às {data.aiReading.generatedAt} • {data.aiReading.status}</small>
-      </div>
+      <div className="insight-column">
+        <div className="prod-panel rhythm-panel">
+          <div className="prod-panel-title"><span>↗</span> RITMO DO DIA</div>
+          <strong className={`rhythm-label ${data.rhythm.tone}`}>{data.rhythm.label}</strong>
+          <p>{data.rhythm.description}</p>
+          <div className="rhythm-bar"><i style={{ width: `${Math.max(5, Math.min(100, data.rhythm.percent))}%` }} /></div>
+        </div>
 
-      <div className="prod-panel update-panel">
-        <div className="prod-panel-title"><span>◷</span> STATUS</div>
-        <strong>{data.updatedAt}</strong>
-        <p>Fonte: {data.source === 'mock' ? 'dados de demonstração' : 'planilha operacional'}</p>
-        <div className="sync-icon">↻</div>
+        <div className="prod-panel ai-panel">
+          <div className="prod-panel-title"><span>◎</span> LEITURA IA</div>
+          <p>{data.aiReading.text}</p>
+          <small>Gerada às {data.aiReading.generatedAt} • {data.aiReading.status}</small>
+        </div>
+
+        <div className="prod-panel update-panel">
+          <div className="prod-panel-title"><span>◷</span> STATUS DA BASE</div>
+          <strong>{data.updatedAt}</strong>
+          <p>{data.source === 'mock' ? 'dados de demonstração' : 'planilha operacional'}</p>
+        </div>
       </div>
     </div>
   );
@@ -217,7 +224,7 @@ function StoresScreen({ data }: { data: ProductionPayload }) {
     <div className="prod-screen-grid stores-grid">
       <div className="prod-panel top-stores-panel">
         <div className="prod-panel-title">TOP 10 LOJAS DO DIA</div>
-        <p className="panel-subtitle">Por valor produzido</p>
+        <p className="panel-subtitle">Ranking por valor produzido</p>
         <div className="store-ranking-list">
           {data.topStores.slice(0, 10).map((store) => (
             <div key={`${store.position}-${store.name}`} className="store-row">
@@ -244,18 +251,18 @@ function StoresScreen({ data }: { data: ProductionPayload }) {
         </div>
         {data.movers[0] && (
           <div className="good-news-box">
-            <span>🏆</span>
-            <div><strong>BOA NOTÍCIA DO DIA</strong><p>{data.movers[0].name} foi a loja que mais cresceu desde a última atualização.</p></div>
+            <span>↗</span>
+            <div><strong>REAÇÃO DO DIA</strong><p>{data.movers[0].name} foi a loja que mais cresceu desde a última atualização.</p></div>
           </div>
         )}
       </div>
 
       <div className="prod-panel zeros-panel">
         <div className="prod-panel-title danger">LOJAS ZERADAS</div>
-        <p className="panel-subtitle">Sem produção hoje</p>
+        <p className="panel-subtitle">Sem produção registrada hoje</p>
         <div className="zero-list">
           {data.zeroStoresList.slice(0, 10).map((store) => (
-            <div key={store} className="zero-row"><span>●</span>{store}</div>
+            <div key={store} className="zero-row"><span>●</span><strong>{store}</strong></div>
           ))}
         </div>
       </div>
@@ -301,7 +308,7 @@ function RegionalsScreen({ data }: { data: ProductionPayload }) {
       </div>
 
       <div className="prod-panel alerts-panel">
-        <div className="prod-panel-title danger">ALERTAS</div>
+        <div className="prod-panel-title danger">ALERTAS OPERACIONAIS</div>
         <div className="alerts-list">
           {data.alerts.slice(0, 5).map((alert) => (
             <div key={`${alert.title}-${alert.description}`} className={`alert-row ${alert.level}`}>
@@ -312,7 +319,7 @@ function RegionalsScreen({ data }: { data: ProductionPayload }) {
         </div>
         <div className="focus-box">
           <strong>FOCO DO DIA</strong>
-          <p>Reduzir lojas zeradas e proteger o ticket médio.</p>
+          <p>Reduzir lojas zeradas, ampliar cobertura e proteger ticket médio.</p>
         </div>
       </div>
     </div>
@@ -322,7 +329,7 @@ function RegionalsScreen({ data }: { data: ProductionPayload }) {
 function MetricCard({ label, value, icon, delta }: { label: string; value: string; icon: string; delta?: MetricDelta }) {
   return (
     <div className="metric-card">
-      <span>{metricIcon(icon)}</span>
+      <span>{icon}</span>
       <div>
         <small>{label}</small>
         <strong>{value}</strong>
@@ -330,18 +337,6 @@ function MetricCard({ label, value, icon, delta }: { label: string; value: strin
       </div>
     </div>
   );
-}
-
-function metricIcon(icon: string) {
-  const icons: Record<string, string> = {
-    handshake: '🤝',
-    money: '💰',
-    chart: '📈',
-    store: '🏪',
-    alertStore: '🏚',
-    target: '🎯'
-  };
-  return icons[icon] ?? '⬢';
 }
 
 function alertIcon(level: AlertRow['level']) {
@@ -362,16 +357,19 @@ function HoneyIcon() {
 }
 
 const styles = `
+  * { box-sizing: border-box; }
+
+  body { margin: 0; background: #020812; }
+
   .prod-screen {
     position: relative;
     width: 100vw;
     height: 100vh;
-    min-height: 680px;
     overflow: hidden;
     background:
-      radial-gradient(circle at 15% 0%, rgba(255, 194, 42, 0.12), transparent 29%),
-      radial-gradient(circle at 90% 20%, rgba(60, 148, 234, 0.13), transparent 32%),
-      linear-gradient(135deg, #020812 0%, #061524 48%, #020812 100%);
+      radial-gradient(circle at 12% 0%, rgba(255, 194, 42, 0.13), transparent 28%),
+      radial-gradient(circle at 92% 20%, rgba(60, 148, 234, 0.13), transparent 30%),
+      linear-gradient(135deg, #020812 0%, #061524 52%, #020812 100%);
     color: #f5f7fb;
     isolation: isolate;
   }
@@ -379,7 +377,7 @@ const styles = `
   .prod-bg-grid {
     position: absolute;
     inset: 0;
-    opacity: 0.46;
+    opacity: 0.36;
     z-index: -1;
     background-image:
       linear-gradient(30deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
@@ -400,8 +398,8 @@ const styles = `
   }
 
   .prod-logo-mark {
-    width: 68px;
-    height: 68px;
+    width: 64px;
+    height: 64px;
     margin: 0 auto 18px;
     border: 2px solid #ffc22a;
     display: grid;
@@ -409,7 +407,7 @@ const styles = `
     clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%);
   }
 
-  .prod-logo-mark svg { width: 42px; height: 42px; }
+  .prod-logo-mark svg { width: 40px; height: 40px; }
   .prod-logo-mark svg path { fill: none; stroke: #ffc22a; stroke-width: 4; stroke-linejoin: round; }
 
   .prod-loader-card h1,
@@ -427,103 +425,114 @@ const styles = `
   }
 
   .prod-topbar {
-    height: 13vh;
-    min-height: 104px;
-    padding: 2.4vh 2.6vw 1.8vh;
+    height: 94px;
+    padding: 16px 26px 12px;
     display: grid;
-    grid-template-columns: 150px 1fr 250px;
+    grid-template-columns: 128px 1fr 204px;
     align-items: start;
-    gap: 24px;
+    gap: 22px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-    background: linear-gradient(to bottom, rgba(2, 8, 18, 0.96), rgba(2, 8, 18, 0.64));
+    background: linear-gradient(to bottom, rgba(2, 8, 18, 0.98), rgba(2, 8, 18, 0.68));
   }
 
   .prod-screen-pill {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 40px;
+    height: 34px;
     background: linear-gradient(135deg, #ffc22a, #ff8619);
     color: #07111e;
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 900;
     clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%);
   }
 
-  .prod-title-block { text-align: center; }
-  .prod-title-block span { display: block; margin-bottom: 6px; color: white; font-size: 22px; font-weight: 800; }
-  .prod-title-block h1 { margin: 0; font-size: clamp(44px, 4.5vw, 78px); line-height: 0.82; font-weight: 900; font-style: italic; }
+  .prod-title-block { text-align: center; min-width: 0; }
+  .prod-title-block span { display: block; margin-bottom: 4px; color: white; font-size: clamp(16px, 1.5vw, 23px); font-weight: 800; }
+  .prod-title-block h1 { margin: 0; font-size: clamp(34px, 4.2vw, 62px); line-height: 0.84; font-weight: 900; font-style: italic; }
   .prod-title-block h1 em { color: #ffc22a; font-style: italic; }
-  .prod-title-block p { margin: 9px 0 0; color: rgba(255,255,255,0.68); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .prod-title-block p { margin: 6px 0 0; color: rgba(255,255,255,0.68); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
 
   .prod-update-box { justify-self: end; text-align: right; }
-  .prod-update-box span { display: block; color: rgba(255,255,255,0.86); font-weight: 900; font-size: 16px; }
-  .prod-update-box strong { display: block; color: #ffc22a; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(44px, 4vw, 68px); line-height: 0.8; font-weight: 900; }
-  .prod-update-box small { display: inline-flex; align-items: center; gap: 8px; margin-top: 9px; color: rgba(255,255,255,0.78); font-weight: 700; text-transform: uppercase; }
-  .prod-update-box i { width: 12px; height: 12px; border-radius: 50%; background: #58c94f; box-shadow: 0 0 0 5px rgba(88,201,79,0.16); }
+  .prod-update-box span { display: block; color: rgba(255,255,255,0.84); font-weight: 900; font-size: 13px; }
+  .prod-update-box strong { display: block; color: #ffc22a; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(38px, 4vw, 56px); line-height: 0.82; font-weight: 900; }
+  .prod-update-box small { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; color: rgba(255,255,255,0.78); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+  .prod-update-box i { width: 10px; height: 10px; border-radius: 50%; background: #58c94f; box-shadow: 0 0 0 5px rgba(88,201,79,0.16); }
 
   .prod-stage {
-    height: calc(100vh - 13vh - 70px);
-    min-height: 500px;
-    padding: 2.2vh 2vw 1.7vh;
+    height: calc(100vh - 150px);
+    padding: 16px 20px 14px;
   }
 
-  .prod-stage-animated { animation: prodScreenIn 700ms cubic-bezier(0.18, 0.72, 0.18, 1) both; }
+  .prod-stage-animated { animation: prodScreenIn 520ms cubic-bezier(0.18, 0.72, 0.18, 1) both; }
 
   @keyframes prodScreenIn {
-    from { opacity: 0; transform: translateY(12px); filter: blur(5px); }
+    from { opacity: 0; transform: translateY(10px); filter: blur(4px); }
     to { opacity: 1; transform: translateY(0); filter: blur(0); }
   }
 
-  .prod-screen-grid { height: 100%; display: grid; gap: 1.25vw; }
-  .executive-grid { grid-template-columns: repeat(6, 1fr); grid-template-rows: minmax(150px, 0.9fr) 1.1fr; }
-  .stores-grid { grid-template-columns: 1.2fr 1fr 1fr; }
-  .regionals-grid { grid-template-columns: 1.65fr 0.85fr; }
+  .prod-screen-grid { height: 100%; display: grid; gap: 16px; min-height: 0; }
+  .executive-grid { grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.95fr); }
+  .stores-grid { grid-template-columns: minmax(0, 1.28fr) minmax(320px, 0.9fr) minmax(320px, 0.95fr); }
+  .regionals-grid { grid-template-columns: minmax(0, 1.65fr) minmax(360px, 0.85fr); }
+  .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 16px; min-height: 0; }
+  .insight-column { display: grid; grid-template-rows: 0.82fr 1.18fr 0.72fr; gap: 16px; min-height: 0; }
 
   .metric-card,
   .prod-panel {
     border: 1px solid rgba(255,255,255,0.16);
-    background: linear-gradient(180deg, rgba(7,20,34,0.95), rgba(5,16,28,0.91));
-    box-shadow: 0 20px 65px rgba(0,0,0,0.30), inset 0 0 55px rgba(255,255,255,0.025);
+    background: linear-gradient(180deg, rgba(7,20,34,0.96), rgba(5,16,28,0.92));
+    box-shadow: 0 18px 55px rgba(0,0,0,0.30), inset 0 0 48px rgba(255,255,255,0.025);
   }
 
   .metric-card {
-    padding: 22px 20px;
-    display: flex;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 54px 1fr;
     align-items: center;
-    justify-content: center;
-    gap: 17px;
+    gap: 14px;
     min-width: 0;
+    min-height: 0;
   }
 
-  .metric-card > span { font-size: clamp(36px, 3vw, 54px); line-height: 1; }
-  .metric-card small { display: block; color: rgba(255,255,255,0.82); font-weight: 900; text-transform: uppercase; font-size: clamp(12px, 0.92vw, 16px); }
-  .metric-card strong { display: block; margin-top: 12px; font-size: clamp(34px, 3.5vw, 62px); line-height: 0.86; font-weight: 900; white-space: nowrap; }
-  .metric-card em { display: block; margin-top: 13px; font-style: normal; font-size: clamp(14px, 1.05vw, 18px); font-weight: 900; }
+  .metric-card > span {
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255,194,42,0.45);
+    border-radius: 50%;
+    color: #ffc22a;
+    font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
+    font-size: 19px;
+    font-weight: 900;
+  }
+
+  .metric-card small { display: block; color: rgba(255,255,255,0.82); font-weight: 900; text-transform: uppercase; font-size: clamp(11px, 0.95vw, 15px); }
+  .metric-card strong { display: block; margin-top: 9px; font-size: clamp(28px, 3vw, 46px); line-height: 0.92; font-weight: 900; white-space: nowrap; }
+  .metric-card em { display: block; margin-top: 11px; font-style: normal; font-size: clamp(12px, 0.95vw, 16px); font-weight: 900; white-space: nowrap; }
 
   .positive { color: #58c94f !important; }
   .negative { color: #ff4d3d !important; }
   .neutral { color: #aab2bf !important; }
 
-  .prod-panel { padding: 24px 26px; min-width: 0; overflow: hidden; }
-  .prod-panel-title { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; color: #ffc22a; font-size: clamp(20px, 1.7vw, 30px); font-weight: 900; }
+  .prod-panel { padding: 18px 20px; min-width: 0; min-height: 0; overflow: hidden; }
+  .prod-panel-title { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: #ffc22a; font-size: clamp(18px, 1.55vw, 27px); line-height: 1; font-weight: 900; }
   .prod-panel-title.danger { color: #ff4d3d; }
-  .panel-subtitle { margin: -8px 0 17px; color: rgba(255,255,255,0.70); font-size: 15px; }
+  .panel-subtitle { margin: -5px 0 13px; color: rgba(255,255,255,0.70); font-size: 13px; }
 
-  .rhythm-panel { grid-column: span 2; }
-  .rhythm-label { display: block; margin: 8px 0 6px; font-size: clamp(30px, 2.4vw, 44px); font-weight: 900; }
-  .rhythm-panel p { margin: 0 0 28px; font-size: clamp(17px, 1.25vw, 22px); font-weight: 700; color: white; }
-  .rhythm-bar { height: 16px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #e81635, #ffb21e, #58c94f); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
-  .rhythm-bar i { display: block; height: 100%; border-right: 9px solid white; }
+  .rhythm-label { display: block; margin: 4px 0 5px; font-size: clamp(28px, 2.4vw, 42px); line-height: .95; font-weight: 900; }
+  .rhythm-panel p { margin: 0 0 16px; font-size: clamp(14px, 1.12vw, 19px); font-weight: 700; color: white; }
+  .rhythm-bar { height: 13px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #e81635, #ffb21e, #58c94f); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
+  .rhythm-bar i { display: block; height: 100%; border-right: 8px solid white; }
 
-  .ai-panel { grid-column: span 3; border-color: rgba(255,194,42,0.62); box-shadow: 0 20px 65px rgba(0,0,0,0.30), 0 0 28px rgba(255,194,42,0.10), inset 0 0 55px rgba(255,194,42,0.04); }
-  .ai-panel p { margin: 0; color: white; font-size: clamp(18px, 1.28vw, 24px); line-height: 1.42; font-weight: 650; }
-  .ai-panel small { display: block; margin-top: 17px; color: rgba(255,255,255,0.55); font-weight: 800; text-transform: uppercase; }
+  .ai-panel { border-color: rgba(255,194,42,0.56); box-shadow: 0 18px 55px rgba(0,0,0,0.30), 0 0 24px rgba(255,194,42,0.10), inset 0 0 48px rgba(255,194,42,0.04); }
+  .ai-panel p { margin: 0; color: white; font-size: clamp(14px, 1.15vw, 20px); line-height: 1.35; font-weight: 650; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+  .ai-panel small { display: block; margin-top: 12px; color: rgba(255,255,255,0.55); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 
-  .update-panel { position: relative; text-align: center; }
-  .update-panel strong { display: block; margin-top: 14px; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(50px, 4.4vw, 72px); line-height: 0.85; }
-  .update-panel p { margin: 12px 0 0; color: rgba(255,255,255,0.76); font-weight: 700; }
-  .sync-icon { position: absolute; right: 24px; bottom: 20px; color: #58c94f; font-size: 44px; }
+  .update-panel { text-align: center; }
+  .update-panel strong { display: block; margin-top: 4px; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(40px, 4.4vw, 62px); line-height: .82; }
+  .update-panel p { margin: 8px 0 0; color: rgba(255,255,255,0.76); font-size: 13px; font-weight: 700; }
 
   .top-stores-panel,
   .movers-panel,
@@ -534,12 +543,12 @@ const styles = `
   .store-ranking-list,
   .movers-list,
   .zero-list,
-  .alerts-list { display: grid; gap: 10px; }
+  .alerts-list { display: grid; gap: 8px; min-height: 0; }
 
   .store-row {
-    min-height: 41px;
+    min-height: 38px;
     display: grid;
-    grid-template-columns: 48px 1fr 58px 110px;
+    grid-template-columns: 46px minmax(0, 1fr) 56px 106px;
     align-items: center;
     gap: 10px;
     border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -548,73 +557,90 @@ const styles = `
 
   .store-row span { color: rgba(255,255,255,0.82); }
   .store-row span.podium { color: #ffc22a; }
-  .store-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .store-row small { color: #aab2bf; font-weight: 900; }
-  .store-row em { color: white; font-style: normal; text-align: right; font-weight: 900; }
+  .store-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(13px, 1vw, 17px); }
+  .store-row small { color: #aab2bf; font-weight: 900; white-space: nowrap; }
+  .store-row em { color: white; font-style: normal; text-align: right; font-weight: 900; white-space: nowrap; }
 
-  .mover-row { min-height: 48px; display: grid; grid-template-columns: 30px 1fr 80px; align-items: center; gap: 10px; font-weight: 900; }
+  .mover-row { min-height: 44px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 76px; align-items: center; gap: 10px; font-weight: 900; border-bottom: 1px solid rgba(255,255,255,0.08); }
   .mover-row span, .mover-row em { color: #58c94f; font-style: normal; }
-  .mover-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mover-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(13px, 1vw, 17px); }
 
   .good-news-box {
-    margin-top: 24px;
-    padding: 18px;
+    margin-top: 18px;
+    padding: 14px;
     display: grid;
-    grid-template-columns: 54px 1fr;
-    gap: 14px;
+    grid-template-columns: 42px 1fr;
+    gap: 12px;
     border: 1px solid rgba(88,201,79,0.42);
     background: rgba(88,201,79,0.09);
   }
-  .good-news-box > span { font-size: 40px; }
+  .good-news-box > span { color: #58c94f; font-size: 32px; font-weight: 900; }
   .good-news-box strong { color: #58c94f; }
-  .good-news-box p { margin: 6px 0 0; color: white; line-height: 1.35; }
+  .good-news-box p { margin: 5px 0 0; color: white; line-height: 1.28; font-size: 13px; }
 
-  .zero-row { min-height: 39px; display: flex; align-items: center; gap: 12px; color: white; font-weight: 750; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  .zero-row span { color: #ff4d3d; font-size: 15px; }
+  .zero-row { min-height: 37px; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 10px; color: white; font-weight: 800; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .zero-row span { color: #ff4d3d; font-size: 13px; }
+  .zero-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(13px, 1vw, 17px); }
 
-  .regional-table { height: calc(100% - 48px); display: grid; grid-template-rows: 44px repeat(8, minmax(38px, 1fr)); }
+  .regional-table { height: calc(100% - 44px); display: grid; grid-template-rows: 38px repeat(8, minmax(34px, 1fr)); }
   .regional-head,
-  .regional-row { display: grid; grid-template-columns: 1.1fr 0.65fr 0.9fr 0.75fr 0.75fr 0.65fr; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,0.09); }
-  .regional-head { color: rgba(255,255,255,0.78); font-size: 14px; font-weight: 900; }
-  .regional-row { font-weight: 800; }
+  .regional-row { display: grid; grid-template-columns: 1.15fr 0.62fr 0.92fr 0.72fr 0.74fr 0.62fr; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.09); }
+  .regional-head { color: rgba(255,255,255,0.78); font-size: clamp(11px, 0.88vw, 14px); font-weight: 900; }
+  .regional-row { font-weight: 800; font-size: clamp(12px, 0.95vw, 16px); }
+  .regional-row strong, .regional-row span, .regional-row em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .regional-row strong { color: white; }
   .regional-row span { color: rgba(255,255,255,0.84); }
   .regional-row em { color: #ff4d3d; font-style: normal; font-weight: 900; }
-  .total-row { color: #3c94ea; border-top: 1px solid rgba(60,148,234,0.36); }
+  .total-row { border-top: 1px solid rgba(60,148,234,0.36); }
   .total-row strong, .total-row span { color: #7fc8ff; }
 
-  .alert-row { min-height: 76px; display: grid; grid-template-columns: 38px 1fr; align-items: center; gap: 14px; padding: 13px 10px; border-bottom: 1px solid rgba(255,255,255,0.12); }
-  .alert-row > span { font-size: 27px; font-weight: 900; }
+  .alert-row { min-height: 66px; display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 12px; padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.12); }
+  .alert-row > span { font-size: 24px; font-weight: 900; }
   .alert-row.critical > span { color: #ff4d3d; }
   .alert-row.attention > span { color: #ffc22a; }
   .alert-row.good > span { color: #58c94f; }
   .alert-row.info > span { color: #3c94ea; }
-  .alert-row strong { color: white; }
-  .alert-row p { margin: 5px 0 0; color: rgba(255,255,255,0.78); line-height: 1.25; }
+  .alert-row strong { color: white; font-size: clamp(13px, 1vw, 17px); }
+  .alert-row p { margin: 4px 0 0; color: rgba(255,255,255,0.78); line-height: 1.22; font-size: clamp(12px, .95vw, 15px); }
 
-  .focus-box { margin-top: 18px; padding: 18px; border: 1px solid rgba(60,148,234,0.56); background: rgba(60,148,234,0.12); }
+  .focus-box { margin-top: 14px; padding: 14px; border: 1px solid rgba(60,148,234,0.56); background: rgba(60,148,234,0.12); }
   .focus-box strong { color: #7fc8ff; }
-  .focus-box p { margin: 8px 0 0; color: white; }
+  .focus-box p { margin: 7px 0 0; color: white; font-size: 13px; line-height: 1.28; }
 
   .prod-footer {
-    height: 70px;
-    padding: 0 2vw;
+    height: 56px;
+    padding: 0 22px;
     display: grid;
-    grid-template-columns: 210px 1fr 370px;
+    grid-template-columns: 174px 1fr 260px;
     align-items: center;
-    gap: 22px;
+    gap: 18px;
     border-top: 1px solid rgba(255,255,255,0.13);
     background: rgba(2,8,18,0.94);
   }
 
   .prod-footer-logo { display: flex; align-items: center; gap: 10px; color: white; }
-  .prod-footer-logo svg { width: 36px; height: 36px; }
+  .prod-footer-logo svg { width: 30px; height: 30px; }
   .prod-footer-logo svg path { fill: none; stroke: #ffc22a; stroke-width: 4; stroke-linejoin: round; }
   .prod-footer-logo strong { font-weight: 900; }
 
   .prod-ticker-track { overflow: hidden; white-space: nowrap; }
-  .prod-ticker-content { display: inline-block; color: rgba(255,255,255,0.78); font-weight: 800; animation: prodTicker 38s linear infinite; }
-  @keyframes prodTicker { from { transform: translateX(55%); } to { transform: translateX(-100%); } }
+  .prod-ticker-content { display: inline-block; color: rgba(255,255,255,0.78); font-weight: 800; animation: prodTicker 34s linear infinite; }
+  @keyframes prodTicker { from { transform: translateX(48%); } to { transform: translateX(-100%); } }
 
-  .prod-footer-phrase { justify-self: end; color: #ffc22a; font-size: 18px; font-weight: 900; }
+  .prod-footer-phrase { justify-self: end; color: #ffc22a; font-size: 16px; font-weight: 900; }
+
+  @media (max-height: 760px) {
+    .prod-topbar { height: 86px; padding-top: 12px; }
+    .prod-stage { height: calc(100vh - 140px); padding-top: 12px; padding-bottom: 12px; }
+    .prod-footer { height: 54px; }
+    .metric-grid, .insight-column, .prod-screen-grid { gap: 12px; }
+    .metric-card { padding: 13px; grid-template-columns: 46px 1fr; }
+    .metric-card > span { width: 42px; height: 42px; font-size: 17px; }
+    .metric-card strong { font-size: clamp(24px, 2.6vw, 38px); }
+    .prod-panel { padding: 14px 16px; }
+    .store-row { min-height: 34px; }
+    .zero-row { min-height: 33px; }
+    .mover-row { min-height: 38px; }
+    .alert-row { min-height: 58px; }
+  }
 `;
