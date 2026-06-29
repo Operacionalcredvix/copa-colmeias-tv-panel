@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+type Tone = 'positive' | 'negative' | 'neutral';
+
 type MetricDelta = {
   label: string;
-  tone: 'positive' | 'negative' | 'neutral';
+  tone: Tone;
 };
 
 type Summary = {
@@ -62,7 +64,7 @@ type ProductionPayload = {
     label: string;
     description: string;
     percent: number;
-    tone: 'positive' | 'negative' | 'neutral';
+    tone: Tone;
   };
   aiReading: AiReading;
   topStores: StoreRow[];
@@ -71,6 +73,10 @@ type ProductionPayload = {
   regionalPerformance: RegionalRow[];
   alerts: AlertRow[];
   ticker: string[];
+  diagnostics?: {
+    cache?: string;
+    responseMs?: number;
+  };
 };
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
@@ -170,7 +176,6 @@ function Header({ updatedAt, screen }: { updatedAt: string; screen: number }) {
       <div className="prod-title-block">
         <span>{titles[screen]}</span>
         <h1>PAINEL DE PRODUÇÃO <em>CREDVIX</em></h1>
-        <p>Gestão comercial em tempo real</p>
       </div>
       <div className="prod-update-box">
         <span>ATUALIZADO</span>
@@ -183,36 +188,51 @@ function Header({ updatedAt, screen }: { updatedAt: string; screen: number }) {
 
 function ExecutiveScreen({ data }: { data: ProductionPayload }) {
   const s = data.summary;
+  const leader = data.topStores[0];
+  const firstAlert = data.alerts[0];
+  const totalStores = s.activeStores + s.zeroStores;
+  const cacheLabel = data.diagnostics?.cache ? `cache: ${data.diagnostics.cache}` : data.source === 'mock' ? 'dados de demonstração' : 'planilha operacional';
 
   return (
-    <div className="prod-screen-grid executive-grid">
-      <div className="metric-grid">
-        <MetricCard label="Contratos hoje" value={String(s.contracts)} icon="CT" delta={data.deltas.contracts} />
-        <MetricCard label="Valor produzido" value={s.production} icon="R$" delta={data.deltas.production} />
-        <MetricCard label="Ticket médio" value={s.averageTicket} icon="TM" delta={data.deltas.averageTicket} />
-        <MetricCard label="Lojas com produção" value={String(s.activeStores)} icon="ON" delta={data.deltas.activeStores} />
-        <MetricCard label="Lojas zeradas" value={String(s.zeroStores)} icon="0" delta={data.deltas.zeroStores} />
-        <MetricCard label="Projeção do dia" value={s.projection} icon="PR" delta={data.deltas.projection} />
+    <div className="prod-screen-grid executive-grid compact-executive-grid">
+      <div className="executive-left">
+        <div className="metric-grid compact-metric-grid">
+          <MetricCard label="Contratos hoje" value={String(s.contracts)} icon="CT" delta={data.deltas.contracts} featured />
+          <MetricCard label="Valor produzido" value={s.production} icon="R$" delta={data.deltas.production} featured />
+          <MetricCard label="Projeção do dia" value={s.projection} icon="PR" delta={data.deltas.projection} featured />
+          <MetricCard label="Ticket médio" value={s.averageTicket} icon="TM" delta={data.deltas.averageTicket} />
+          <MetricCard label="Lojas com produção" value={String(s.activeStores)} icon="ON" delta={data.deltas.activeStores} />
+          <MetricCard label="Lojas zeradas" value={String(s.zeroStores)} icon="0" delta={data.deltas.zeroStores} danger />
+        </div>
+
+        <div className="executive-strip">
+          <CompactInfo title="Líder do dia" value={leader ? leader.name : 'Sem produção'} detail={leader ? `${leader.contracts} ct • ${leader.value}` : 'aguardando produção'} tone="positive" />
+          <CompactInfo title="Cobertura" value={`${s.activeStores}/${totalStores || s.activeStores}`} detail={`${s.zeroStores} lojas zeradas`} tone={s.zeroStores > 0 ? 'negative' : 'positive'} />
+          <CompactInfo title="Fonte" value={data.source === 'mock' ? 'Demonstração' : 'Operacional'} detail={cacheLabel} tone="neutral" />
+        </div>
       </div>
 
-      <div className="insight-column">
-        <div className="prod-panel rhythm-panel">
+      <div className="insight-column compact-insight-column">
+        <div className="prod-panel rhythm-panel compact-rhythm-panel">
           <div className="prod-panel-title"><span>↗</span> RITMO DO DIA</div>
-          <strong className={`rhythm-label ${data.rhythm.tone}`}>{data.rhythm.label}</strong>
+          <div className="rhythm-line">
+            <strong className={`rhythm-label ${data.rhythm.tone}`}>{data.rhythm.label}</strong>
+            <em>{data.rhythm.percent}%</em>
+          </div>
           <p>{data.rhythm.description}</p>
           <div className="rhythm-bar"><i style={{ width: `${Math.max(5, Math.min(100, data.rhythm.percent))}%` }} /></div>
         </div>
 
-        <div className="prod-panel ai-panel">
+        <div className="prod-panel ai-panel compact-ai-panel">
           <div className="prod-panel-title"><span>◎</span> LEITURA IA</div>
           <p>{data.aiReading.text}</p>
           <small>Gerada às {data.aiReading.generatedAt} • {data.aiReading.status}</small>
         </div>
 
-        <div className="prod-panel update-panel">
-          <div className="prod-panel-title"><span>◷</span> STATUS DA BASE</div>
-          <strong>{data.updatedAt}</strong>
-          <p>{data.source === 'mock' ? 'dados de demonstração' : 'planilha operacional'}</p>
+        <div className="prod-panel executive-alert-panel">
+          <div className="prod-panel-title danger">PRIORIDADE AGORA</div>
+          <strong>{firstAlert ? firstAlert.title : 'Sem alerta crítico'}</strong>
+          <p>{firstAlert ? firstAlert.description : 'Operação sem alerta crítico no momento.'}</p>
         </div>
       </div>
     </div>
@@ -326,15 +346,25 @@ function RegionalsScreen({ data }: { data: ProductionPayload }) {
   );
 }
 
-function MetricCard({ label, value, icon, delta }: { label: string; value: string; icon: string; delta?: MetricDelta }) {
+function MetricCard({ label, value, icon, delta, featured = false, danger = false }: { label: string; value: string; icon: string; delta?: MetricDelta; featured?: boolean; danger?: boolean }) {
   return (
-    <div className="metric-card">
+    <div className={`metric-card ${featured ? 'featured' : ''} ${danger ? 'danger-card' : ''}`}>
       <span>{icon}</span>
       <div>
         <small>{label}</small>
         <strong>{value}</strong>
         {delta && <em className={delta.tone}>{delta.label}</em>}
       </div>
+    </div>
+  );
+}
+
+function CompactInfo({ title, value, detail, tone }: { title: string; value: string; detail: string; tone: Tone }) {
+  return (
+    <div className="compact-info">
+      <span>{title}</span>
+      <strong className={tone}>{value}</strong>
+      <small>{detail}</small>
     </div>
   );
 }
@@ -358,7 +388,6 @@ function HoneyIcon() {
 
 const styles = `
   * { box-sizing: border-box; }
-
   body { margin: 0; background: #020812; }
 
   .prod-screen {
@@ -377,7 +406,7 @@ const styles = `
   .prod-bg-grid {
     position: absolute;
     inset: 0;
-    opacity: 0.36;
+    opacity: 0.32;
     z-index: -1;
     background-image:
       linear-gradient(30deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
@@ -387,26 +416,8 @@ const styles = `
   }
 
   .loading-screen { display: grid; place-items: center; }
-
-  .prod-loader-card {
-    width: min(620px, 70vw);
-    border: 1px solid rgba(255, 194, 42, 0.45);
-    background: rgba(5, 17, 29, 0.86);
-    padding: 42px 48px;
-    text-align: center;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), inset 0 0 80px rgba(255, 194, 42, 0.07);
-  }
-
-  .prod-logo-mark {
-    width: 64px;
-    height: 64px;
-    margin: 0 auto 18px;
-    border: 2px solid #ffc22a;
-    display: grid;
-    place-items: center;
-    clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%);
-  }
-
+  .prod-loader-card { width: min(620px, 70vw); border: 1px solid rgba(255, 194, 42, 0.45); background: rgba(5, 17, 29, 0.86); padding: 42px 48px; text-align: center; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), inset 0 0 80px rgba(255, 194, 42, 0.07); }
+  .prod-logo-mark { width: 64px; height: 64px; margin: 0 auto 18px; border: 2px solid #ffc22a; display: grid; place-items: center; clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%); }
   .prod-logo-mark svg { width: 40px; height: 40px; }
   .prod-logo-mark svg path { fill: none; stroke: #ffc22a; stroke-width: 4; stroke-linejoin: round; }
 
@@ -424,137 +435,76 @@ const styles = `
     text-transform: uppercase;
   }
 
-  .prod-topbar {
-    height: 94px;
-    padding: 16px 26px 12px;
-    display: grid;
-    grid-template-columns: 128px 1fr 204px;
-    align-items: start;
-    gap: 22px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-    background: linear-gradient(to bottom, rgba(2, 8, 18, 0.98), rgba(2, 8, 18, 0.68));
-  }
-
-  .prod-screen-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 34px;
-    background: linear-gradient(135deg, #ffc22a, #ff8619);
-    color: #07111e;
-    font-size: 18px;
-    font-weight: 900;
-    clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%);
-  }
-
+  .prod-topbar { height: 82px; padding: 12px 22px 10px; display: grid; grid-template-columns: 126px 1fr 184px; align-items: start; gap: 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.14); background: linear-gradient(to bottom, rgba(2, 8, 18, 0.98), rgba(2, 8, 18, 0.68)); }
+  .prod-screen-pill { display: inline-flex; align-items: center; justify-content: center; height: 30px; background: linear-gradient(135deg, #ffc22a, #ff8619); color: #07111e; font-size: 16px; font-weight: 900; clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%); }
   .prod-title-block { text-align: center; min-width: 0; }
-  .prod-title-block span { display: block; margin-bottom: 4px; color: white; font-size: clamp(16px, 1.5vw, 23px); font-weight: 800; }
-  .prod-title-block h1 { margin: 0; font-size: clamp(34px, 4.2vw, 62px); line-height: 0.84; font-weight: 900; font-style: italic; }
+  .prod-title-block span { display: block; margin-bottom: 2px; color: white; font-size: clamp(14px, 1.3vw, 20px); font-weight: 800; }
+  .prod-title-block h1 { margin: 0; font-size: clamp(32px, 4.1vw, 58px); line-height: 0.84; font-weight: 900; font-style: italic; }
   .prod-title-block h1 em { color: #ffc22a; font-style: italic; }
-  .prod-title-block p { margin: 6px 0 0; color: rgba(255,255,255,0.68); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
-
   .prod-update-box { justify-self: end; text-align: right; }
-  .prod-update-box span { display: block; color: rgba(255,255,255,0.84); font-weight: 900; font-size: 13px; }
-  .prod-update-box strong { display: block; color: #ffc22a; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(38px, 4vw, 56px); line-height: 0.82; font-weight: 900; }
-  .prod-update-box small { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; color: rgba(255,255,255,0.78); font-size: 12px; font-weight: 700; text-transform: uppercase; }
-  .prod-update-box i { width: 10px; height: 10px; border-radius: 50%; background: #58c94f; box-shadow: 0 0 0 5px rgba(88,201,79,0.16); }
+  .prod-update-box span { display: block; color: rgba(255,255,255,0.84); font-weight: 900; font-size: 12px; }
+  .prod-update-box strong { display: block; color: #ffc22a; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(34px, 3.7vw, 52px); line-height: 0.82; font-weight: 900; }
+  .prod-update-box small { display: inline-flex; align-items: center; gap: 8px; margin-top: 5px; color: rgba(255,255,255,0.78); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .prod-update-box i { width: 9px; height: 9px; border-radius: 50%; background: #58c94f; box-shadow: 0 0 0 5px rgba(88,201,79,0.16); }
 
-  .prod-stage {
-    height: calc(100vh - 150px);
-    padding: 16px 20px 14px;
-  }
+  .prod-stage { height: calc(100vh - 136px); padding: 12px 16px 10px; }
+  .prod-stage-animated { animation: prodScreenIn 460ms cubic-bezier(0.18, 0.72, 0.18, 1) both; }
+  @keyframes prodScreenIn { from { opacity: 0; transform: translateY(8px); filter: blur(4px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
 
-  .prod-stage-animated { animation: prodScreenIn 520ms cubic-bezier(0.18, 0.72, 0.18, 1) both; }
-
-  @keyframes prodScreenIn {
-    from { opacity: 0; transform: translateY(10px); filter: blur(4px); }
-    to { opacity: 1; transform: translateY(0); filter: blur(0); }
-  }
-
-  .prod-screen-grid { height: 100%; display: grid; gap: 16px; min-height: 0; }
-  .executive-grid { grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.95fr); }
+  .prod-screen-grid { height: 100%; display: grid; gap: 12px; min-height: 0; }
+  .compact-executive-grid { grid-template-columns: minmax(0, 1.42fr) minmax(355px, 0.9fr); }
+  .executive-left { display: grid; grid-template-rows: auto 92px; gap: 12px; min-height: 0; }
+  .compact-metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(132px, 1fr)); gap: 12px; min-height: 0; }
+  .compact-insight-column { display: grid; grid-template-rows: 0.82fr 1.25fr 0.75fr; gap: 12px; min-height: 0; }
   .stores-grid { grid-template-columns: minmax(0, 1.28fr) minmax(320px, 0.9fr) minmax(320px, 0.95fr); }
   .regionals-grid { grid-template-columns: minmax(0, 1.65fr) minmax(360px, 0.85fr); }
-  .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 16px; min-height: 0; }
-  .insight-column { display: grid; grid-template-rows: 0.82fr 1.18fr 0.72fr; gap: 16px; min-height: 0; }
 
   .metric-card,
-  .prod-panel {
-    border: 1px solid rgba(255,255,255,0.16);
-    background: linear-gradient(180deg, rgba(7,20,34,0.96), rgba(5,16,28,0.92));
-    box-shadow: 0 18px 55px rgba(0,0,0,0.30), inset 0 0 48px rgba(255,255,255,0.025);
-  }
-
-  .metric-card {
-    padding: 16px;
-    display: grid;
-    grid-template-columns: 54px 1fr;
-    align-items: center;
-    gap: 14px;
-    min-width: 0;
-    min-height: 0;
-  }
-
-  .metric-card > span {
-    width: 48px;
-    height: 48px;
-    display: grid;
-    place-items: center;
-    border: 1px solid rgba(255,194,42,0.45);
-    border-radius: 50%;
-    color: #ffc22a;
-    font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
-    font-size: 19px;
-    font-weight: 900;
-  }
-
-  .metric-card small { display: block; color: rgba(255,255,255,0.82); font-weight: 900; text-transform: uppercase; font-size: clamp(11px, 0.95vw, 15px); }
-  .metric-card strong { display: block; margin-top: 9px; font-size: clamp(28px, 3vw, 46px); line-height: 0.92; font-weight: 900; white-space: nowrap; }
-  .metric-card em { display: block; margin-top: 11px; font-style: normal; font-size: clamp(12px, 0.95vw, 16px); font-weight: 900; white-space: nowrap; }
+  .prod-panel,
+  .compact-info { border: 1px solid rgba(255,255,255,0.16); background: linear-gradient(180deg, rgba(7,20,34,0.96), rgba(5,16,28,0.92)); box-shadow: 0 18px 55px rgba(0,0,0,0.30), inset 0 0 48px rgba(255,255,255,0.025); }
+  .metric-card { padding: 14px 16px; display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 13px; min-width: 0; min-height: 0; }
+  .metric-card.featured { border-color: rgba(255,194,42,0.30); background: linear-gradient(180deg, rgba(10,28,45,0.98), rgba(5,16,28,0.94)); }
+  .metric-card.danger-card { border-color: rgba(255,77,61,0.34); }
+  .metric-card > span { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid rgba(255,194,42,0.45); border-radius: 50%; color: #ffc22a; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: 16px; font-weight: 900; }
+  .metric-card small { display: block; color: rgba(255,255,255,0.78); font-weight: 900; text-transform: uppercase; font-size: clamp(10px, 0.82vw, 13px); }
+  .metric-card strong { display: block; margin-top: 7px; font-size: clamp(27px, 2.65vw, 42px); line-height: 0.9; font-weight: 900; white-space: nowrap; }
+  .metric-card.featured strong { font-size: clamp(32px, 3vw, 48px); }
+  .metric-card em { display: block; margin-top: 9px; font-style: normal; font-size: clamp(11px, 0.88vw, 14px); font-weight: 900; white-space: nowrap; }
 
   .positive { color: #58c94f !important; }
   .negative { color: #ff4d3d !important; }
   .neutral { color: #aab2bf !important; }
 
-  .prod-panel { padding: 18px 20px; min-width: 0; min-height: 0; overflow: hidden; }
-  .prod-panel-title { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: #ffc22a; font-size: clamp(18px, 1.55vw, 27px); line-height: 1; font-weight: 900; }
+  .executive-strip { display: grid; grid-template-columns: 1.05fr 0.8fr 0.75fr; gap: 12px; min-height: 0; }
+  .compact-info { padding: 13px 16px; min-width: 0; overflow: hidden; }
+  .compact-info span { display: block; color: rgba(255,255,255,0.68); font-size: 11px; font-weight: 900; text-transform: uppercase; }
+  .compact-info strong { display: block; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: white; font-size: clamp(16px, 1.35vw, 23px); }
+  .compact-info small { display: block; margin-top: 6px; color: rgba(255,255,255,0.72); font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .prod-panel { padding: 15px 17px; min-width: 0; min-height: 0; overflow: hidden; }
+  .prod-panel-title { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; color: #ffc22a; font-size: clamp(17px, 1.45vw, 25px); line-height: 1; font-weight: 900; }
   .prod-panel-title.danger { color: #ff4d3d; }
-  .panel-subtitle { margin: -5px 0 13px; color: rgba(255,255,255,0.70); font-size: 13px; }
+  .panel-subtitle { margin: -4px 0 12px; color: rgba(255,255,255,0.70); font-size: 13px; }
 
-  .rhythm-label { display: block; margin: 4px 0 5px; font-size: clamp(28px, 2.4vw, 42px); line-height: .95; font-weight: 900; }
-  .rhythm-panel p { margin: 0 0 16px; font-size: clamp(14px, 1.12vw, 19px); font-weight: 700; color: white; }
-  .rhythm-bar { height: 13px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #e81635, #ffb21e, #58c94f); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
-  .rhythm-bar i { display: block; height: 100%; border-right: 8px solid white; }
+  .rhythm-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .rhythm-line em { color: white; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(32px, 3vw, 50px); font-style: italic; font-weight: 900; line-height: .8; }
+  .rhythm-label { display: block; margin: 0; font-size: clamp(25px, 2.2vw, 38px); line-height: .95; font-weight: 900; }
+  .rhythm-panel p { margin: 6px 0 12px; font-size: clamp(13px, 1vw, 17px); font-weight: 700; color: white; }
+  .rhythm-bar { height: 11px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #e81635, #ffb21e, #58c94f); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
+  .rhythm-bar i { display: block; height: 100%; border-right: 7px solid white; }
 
-  .ai-panel { border-color: rgba(255,194,42,0.56); box-shadow: 0 18px 55px rgba(0,0,0,0.30), 0 0 24px rgba(255,194,42,0.10), inset 0 0 48px rgba(255,194,42,0.04); }
-  .ai-panel p { margin: 0; color: white; font-size: clamp(14px, 1.15vw, 20px); line-height: 1.35; font-weight: 650; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
-  .ai-panel small { display: block; margin-top: 12px; color: rgba(255,255,255,0.55); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+  .ai-panel { border-color: rgba(255,194,42,0.54); box-shadow: 0 18px 55px rgba(0,0,0,0.30), 0 0 22px rgba(255,194,42,0.10), inset 0 0 48px rgba(255,194,42,0.04); }
+  .ai-panel p { margin: 0; color: white; font-size: clamp(13px, 1.02vw, 17px); line-height: 1.32; font-weight: 650; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .ai-panel small { display: block; margin-top: 10px; color: rgba(255,255,255,0.55); font-size: 10px; font-weight: 800; text-transform: uppercase; }
 
-  .update-panel { text-align: center; }
-  .update-panel strong { display: block; margin-top: 4px; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(40px, 4.4vw, 62px); line-height: .82; }
-  .update-panel p { margin: 8px 0 0; color: rgba(255,255,255,0.76); font-size: 13px; font-weight: 700; }
-
-  .top-stores-panel,
-  .movers-panel,
-  .zeros-panel,
-  .regional-table-panel,
-  .alerts-panel { height: 100%; }
+  .executive-alert-panel strong { display: block; margin-top: 2px; color: white; font-size: clamp(20px, 1.7vw, 30px); line-height: 1; font-weight: 900; text-transform: uppercase; }
+  .executive-alert-panel p { margin: 8px 0 0; color: rgba(255,255,255,0.78); font-size: clamp(12px, .95vw, 15px); line-height: 1.25; }
 
   .store-ranking-list,
   .movers-list,
   .zero-list,
   .alerts-list { display: grid; gap: 8px; min-height: 0; }
-
-  .store-row {
-    min-height: 38px;
-    display: grid;
-    grid-template-columns: 46px minmax(0, 1fr) 56px 106px;
-    align-items: center;
-    gap: 10px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    font-weight: 800;
-  }
-
+  .store-row { min-height: 38px; display: grid; grid-template-columns: 46px minmax(0, 1fr) 56px 106px; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: 800; }
   .store-row span { color: rgba(255,255,255,0.82); }
   .store-row span.podium { color: #ffc22a; }
   .store-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(13px, 1vw, 17px); }
@@ -564,16 +514,7 @@ const styles = `
   .mover-row { min-height: 44px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 76px; align-items: center; gap: 10px; font-weight: 900; border-bottom: 1px solid rgba(255,255,255,0.08); }
   .mover-row span, .mover-row em { color: #58c94f; font-style: normal; }
   .mover-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(13px, 1vw, 17px); }
-
-  .good-news-box {
-    margin-top: 18px;
-    padding: 14px;
-    display: grid;
-    grid-template-columns: 42px 1fr;
-    gap: 12px;
-    border: 1px solid rgba(88,201,79,0.42);
-    background: rgba(88,201,79,0.09);
-  }
+  .good-news-box { margin-top: 18px; padding: 14px; display: grid; grid-template-columns: 42px 1fr; gap: 12px; border: 1px solid rgba(88,201,79,0.42); background: rgba(88,201,79,0.09); }
   .good-news-box > span { color: #58c94f; font-size: 32px; font-weight: 900; }
   .good-news-box strong { color: #58c94f; }
   .good-news-box p { margin: 5px 0 0; color: white; line-height: 1.28; font-size: 13px; }
@@ -607,40 +548,28 @@ const styles = `
   .focus-box strong { color: #7fc8ff; }
   .focus-box p { margin: 7px 0 0; color: white; font-size: 13px; line-height: 1.28; }
 
-  .prod-footer {
-    height: 56px;
-    padding: 0 22px;
-    display: grid;
-    grid-template-columns: 174px 1fr 260px;
-    align-items: center;
-    gap: 18px;
-    border-top: 1px solid rgba(255,255,255,0.13);
-    background: rgba(2,8,18,0.94);
-  }
-
+  .prod-footer { height: 54px; padding: 0 22px; display: grid; grid-template-columns: 174px 1fr 230px; align-items: center; gap: 18px; border-top: 1px solid rgba(255,255,255,0.13); background: rgba(2,8,18,0.94); }
   .prod-footer-logo { display: flex; align-items: center; gap: 10px; color: white; }
   .prod-footer-logo svg { width: 30px; height: 30px; }
   .prod-footer-logo svg path { fill: none; stroke: #ffc22a; stroke-width: 4; stroke-linejoin: round; }
   .prod-footer-logo strong { font-weight: 900; }
-
   .prod-ticker-track { overflow: hidden; white-space: nowrap; }
   .prod-ticker-content { display: inline-block; color: rgba(255,255,255,0.78); font-weight: 800; animation: prodTicker 34s linear infinite; }
   @keyframes prodTicker { from { transform: translateX(48%); } to { transform: translateX(-100%); } }
-
-  .prod-footer-phrase { justify-self: end; color: #ffc22a; font-size: 16px; font-weight: 900; }
+  .prod-footer-phrase { justify-self: end; color: #ffc22a; font-size: 15px; font-weight: 900; }
 
   @media (max-height: 760px) {
-    .prod-topbar { height: 86px; padding-top: 12px; }
-    .prod-stage { height: calc(100vh - 140px); padding-top: 12px; padding-bottom: 12px; }
-    .prod-footer { height: 54px; }
-    .metric-grid, .insight-column, .prod-screen-grid { gap: 12px; }
-    .metric-card { padding: 13px; grid-template-columns: 46px 1fr; }
-    .metric-card > span { width: 42px; height: 42px; font-size: 17px; }
-    .metric-card strong { font-size: clamp(24px, 2.6vw, 38px); }
-    .prod-panel { padding: 14px 16px; }
-    .store-row { min-height: 34px; }
-    .zero-row { min-height: 33px; }
-    .mover-row { min-height: 38px; }
-    .alert-row { min-height: 58px; }
+    .prod-topbar { height: 76px; padding-top: 10px; }
+    .prod-stage { height: calc(100vh - 128px); padding-top: 10px; padding-bottom: 10px; }
+    .prod-footer { height: 52px; }
+    .compact-executive-grid, .compact-metric-grid, .compact-insight-column, .executive-strip, .prod-screen-grid { gap: 10px; }
+    .compact-metric-grid { grid-template-rows: repeat(2, minmax(118px, 1fr)); }
+    .executive-left { grid-template-rows: auto 82px; }
+    .metric-card { padding: 12px; grid-template-columns: 40px 1fr; }
+    .metric-card > span { width: 36px; height: 36px; font-size: 15px; }
+    .metric-card strong { font-size: clamp(24px, 2.35vw, 36px); }
+    .metric-card.featured strong { font-size: clamp(27px, 2.65vw, 40px); }
+    .prod-panel { padding: 12px 14px; }
+    .ai-panel p { -webkit-line-clamp: 5; }
   }
 `;
