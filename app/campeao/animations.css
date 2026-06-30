@@ -47,6 +47,7 @@
 
 .champion-screen .gold-ribbon {
   overflow: hidden;
+  padding-right: 38px !important;
 }
 
 .champion-screen .gold-ribbon::after {
@@ -54,15 +55,18 @@
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: linear-gradient(110deg, transparent 0 35%, rgba(255,255,255,.58) 46%, transparent 57% 100%);
+  background: linear-gradient(110deg, transparent 0 35%, rgba(255,255,255,.36) 46%, transparent 57% 100%);
   transform: translateX(-120%) skewX(9deg);
   animation: ribbonShine 3.6s ease-in-out infinite;
 }
 
-.champion-screen .gold-ribbon span,
-.champion-screen .gold-ribbon i {
+.champion-screen .gold-ribbon span {
   position: relative;
-  z-index: 1;
+  z-index: 2;
+}
+
+.champion-screen .gold-ribbon i {
+  display: none !important;
 }
 
 .champion-screen .champion-name {
