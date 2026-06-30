@@ -1,0 +1,186 @@
+.champion-screen {
+  --motion-soft: cubic-bezier(.18,.72,.18,1);
+}
+
+.champion-screen .trophy-wrap {
+  animation: trophyFloat 4.4s ease-in-out infinite;
+  transform-origin: 50% 72%;
+}
+
+.champion-screen .trophy-icon {
+  animation: trophyGlow 3.8s ease-in-out infinite;
+}
+
+.champion-screen .trophy-rings {
+  animation: ringPulse 4.8s ease-in-out infinite;
+}
+
+.champion-screen .trophy-rings::after {
+  animation: ringSpin 14s linear infinite;
+}
+
+.champion-screen .light-beam {
+  animation: beamSweep 7.5s ease-in-out infinite alternate;
+}
+
+.champion-screen .beam-right {
+  animation-delay: -2.4s;
+}
+
+.champion-screen .confetti {
+  animation: confettiDrift 8s linear infinite;
+}
+
+.champion-screen .c2 {
+  animation-duration: 9.5s;
+  animation-delay: -3s;
+}
+
+.champion-screen .c3 {
+  animation-duration: 11s;
+  animation-delay: -5s;
+}
+
+.champion-screen .title-chip {
+  animation: titlePulse 2.4s ease-in-out infinite;
+}
+
+.champion-screen .gold-ribbon {
+  overflow: hidden;
+}
+
+.champion-screen .gold-ribbon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(110deg, transparent 0 35%, rgba(255,255,255,.58) 46%, transparent 57% 100%);
+  transform: translateX(-120%) skewX(9deg);
+  animation: ribbonShine 3.6s ease-in-out infinite;
+}
+
+.champion-screen .gold-ribbon span,
+.champion-screen .gold-ribbon i {
+  position: relative;
+  z-index: 1;
+}
+
+.champion-screen .champion-name {
+  animation: championBreath 3.2s ease-in-out infinite;
+}
+
+.champion-screen .champion-name span {
+  animation: nameEnter .9s var(--motion-soft) both;
+}
+
+.champion-screen .champion-name span:nth-child(2) {
+  animation-delay: .11s;
+}
+
+.champion-screen .score-strip {
+  animation: scoreGlow 3.2s ease-in-out infinite;
+}
+
+.champion-screen .score-number em {
+  animation: xPulse 1.8s ease-in-out infinite;
+}
+
+.champion-screen .info-card {
+  animation: cardRise .75s var(--motion-soft) both;
+}
+
+.champion-screen .info-card:nth-child(2) {
+  animation-delay: .12s;
+}
+
+.champion-screen .info-card:nth-child(3) {
+  animation-delay: .24s;
+}
+
+.champion-screen .info-icon svg {
+  animation: iconPulse 2.6s ease-in-out infinite;
+}
+
+@keyframes trophyFloat {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-10px) scale(1.015); }
+}
+
+@keyframes trophyGlow {
+  0%, 100% { filter: drop-shadow(0 0 42px rgba(255,194,42,.42)); }
+  50% { filter: drop-shadow(0 0 64px rgba(255,194,42,.72)); }
+}
+
+@keyframes ringPulse {
+  0%, 100% { transform: scale(1); opacity: .92; }
+  50% { transform: scale(1.035); opacity: .64; }
+}
+
+@keyframes ringSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes beamSweep {
+  0% { opacity: .23; transform: translateX(-22px) rotate(-23deg); }
+  100% { opacity: .55; transform: translateX(22px) rotate(-18deg); }
+}
+
+@keyframes confettiDrift {
+  0% { background-position: 0 0, 0 0, 0 0, 0 0; transform: translateY(0) rotate(var(--confetti-rotate, 0deg)); }
+  100% { background-position: 30px 90px, -44px 130px, 52px 110px, -39px 96px; transform: translateY(18px) rotate(var(--confetti-rotate, 0deg)); }
+}
+
+@keyframes titlePulse {
+  0%, 100% { box-shadow: 0 0 32px rgba(255,194,42,.35), inset 0 0 22px rgba(255,255,255,.30); }
+  50% { box-shadow: 0 0 54px rgba(255,194,42,.62), inset 0 0 32px rgba(255,255,255,.40); }
+}
+
+@keyframes ribbonShine {
+  0%, 28% { transform: translateX(-120%) skewX(9deg); }
+  58%, 100% { transform: translateX(120%) skewX(9deg); }
+}
+
+@keyframes championBreath {
+  0%, 100% {
+    text-shadow: 0 8px 0 rgba(0,0,0,.42), 0 0 1px var(--gold), 0 0 34px rgba(255,194,42,.20), 0 0 52px rgba(50,166,255,.14);
+  }
+  50% {
+    text-shadow: 0 8px 0 rgba(0,0,0,.42), 0 0 2px var(--gold-light), 0 0 48px rgba(255,194,42,.34), 0 0 70px rgba(50,166,255,.24);
+  }
+}
+
+@keyframes nameEnter {
+  from { opacity: 0; transform: translateX(28px); filter: blur(6px); }
+  to { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+@keyframes scoreGlow {
+  0%, 100% { box-shadow: 0 28px 66px rgba(0,0,0,.45), inset 0 0 48px rgba(255,194,42,.05); }
+  50% { box-shadow: 0 30px 76px rgba(0,0,0,.50), inset 0 0 68px rgba(255,194,42,.12), 0 0 22px rgba(50,166,255,.18); }
+}
+
+@keyframes xPulse {
+  0%, 100% { transform: scale(1); color: var(--deep-gold); }
+  50% { transform: scale(1.08); color: var(--gold); }
+}
+
+@keyframes cardRise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes iconPulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255,194,42,0)); }
+  50% { transform: scale(1.08); filter: drop-shadow(0 0 10px rgba(255,194,42,.48)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .champion-screen *,
+  .champion-screen *::before,
+  .champion-screen *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
