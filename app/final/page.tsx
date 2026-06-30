@@ -50,7 +50,7 @@ type GoalEvent = {
 };
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
-const STORAGE_KEY = 'copa-colmeias-final-last-scores-v2';
+const STORAGE_KEY = 'copa-colmeias-final-last-scores-v3';
 const RANKING_ROTATE_MS = 7000;
 
 export default function FinalPage() {
@@ -101,6 +101,21 @@ export default function FinalPage() {
     };
   }, [loadData]);
 
+  const finalMatch = useMemo(() => {
+    if (!data) return null;
+    return getFinalMatch(data.matches);
+  }, [data]);
+
+  const finalHasPortoSeguro = useMemo(() => {
+    if (!finalMatch) return false;
+    return isPortoSeguro(finalMatch.left.name) || isPortoSeguro(finalMatch.right.name);
+  }, [finalMatch]);
+
+  const finalDate = finalHasPortoSeguro ? '01/07' : '30/06';
+  const scheduleNote = finalHasPortoSeguro
+    ? 'Final ajustada por feriado municipal em Porto Seguro'
+    : 'Data prevista da grande final';
+
   const hasRankingSecondPage = (data?.rankingTop.length ?? 0) > 5;
 
   useEffect(() => {
@@ -116,63 +131,6 @@ export default function FinalPage() {
     return () => window.clearInterval(interval);
   }, [hasRankingSecondPage]);
 
-  const evaluateGoal = (payload: PanelPayload) => {
-    const finalMatch = getFinalMatch(payload.matches);
-    if (!finalMatch) return;
-
-    const nextScores: Record<string, { left: number; right: number }> = {
-      [finalMatch.id]: { left: finalMatch.leftScore, right: finalMatch.rightScore }
-    };
-
-    const previous = previousScores.current;
-    const before = previous?.[finalMatch.id];
-
-    previousScores.current = nextScores;
-
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextScores));
-    } catch {
-      // Sem efeito critico para TV.
-    }
-
-    if (!before) return;
-
-    if (finalMatch.leftScore > before.left) {
-      showGoal({ teamName: finalMatch.left.name, score: `${finalMatch.leftScore} X ${finalMatch.rightScore}`, matchId: finalMatch.id });
-      return;
-    }
-
-    if (finalMatch.rightScore > before.right) {
-      showGoal({ teamName: finalMatch.right.name, score: `${finalMatch.leftScore} X ${finalMatch.rightScore}`, matchId: finalMatch.id });
-    }
-  };
-
-  const showGoal = (goal: GoalEvent) => {
-    setActiveGoal(goal);
-    if (goalTimer.current) clearTimeout(goalTimer.current);
-    goalTimer.current = setTimeout(() => setActiveGoal(null), 6800);
-  };
-
-  const finalMatch = useMemo(() => {
-    if (!data) return null;
-    return getFinalMatch(data.matches);
-  }, [data]);
-
-  const thirdPlaceMatch = useMemo(() => {
-    if (!data) return null;
-    return getThirdPlaceMatch(data.matches, finalMatch?.id);
-  }, [data, finalMatch]);
-
-  const finalHasPortoSeguro = useMemo(() => {
-    if (!finalMatch) return false;
-    return isPortoSeguro(finalMatch.left.name) || isPortoSeguro(finalMatch.right.name);
-  }, [finalMatch]);
-
-  const finalDate = finalHasPortoSeguro ? '01/07' : '30/06';
-  const scheduleNote = finalHasPortoSeguro
-    ? 'Data ajustada por feriado municipal em Porto Seguro'
-    : 'Data prevista da grande final';
-
   const tickerText = useMemo(() => {
     if (!data) return '';
     return data.ticker.map((row) => `${row.position}º ${row.name}${row.value ? `  ${row.value}` : ''}`).join('   •   ');
@@ -185,6 +143,43 @@ export default function FinalPage() {
   }, [data, rankingPage]);
 
   const rankingWindowLabel = rankingPage === 0 ? '1º ao 5º' : '6º ao 10º';
+
+  const evaluateGoal = (payload: PanelPayload) => {
+    const match = getFinalMatch(payload.matches);
+    if (!match) return;
+
+    const nextScores: Record<string, { left: number; right: number }> = {
+      [match.id]: { left: match.leftScore, right: match.rightScore }
+    };
+
+    const previous = previousScores.current;
+    const before = previous?.[match.id];
+
+    previousScores.current = nextScores;
+
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextScores));
+    } catch {
+      // Sem efeito critico para TV.
+    }
+
+    if (!before) return;
+
+    if (match.leftScore > before.left) {
+      showGoal({ teamName: match.left.name, score: `${match.leftScore} X ${match.rightScore}`, matchId: match.id });
+      return;
+    }
+
+    if (match.rightScore > before.right) {
+      showGoal({ teamName: match.right.name, score: `${match.leftScore} X ${match.rightScore}`, matchId: match.id });
+    }
+  };
+
+  const showGoal = (goal: GoalEvent) => {
+    setActiveGoal(goal);
+    if (goalTimer.current) clearTimeout(goalTimer.current);
+    goalTimer.current = setTimeout(() => setActiveGoal(null), 6800);
+  };
 
   if (!data && isLoading) {
     return (
@@ -218,48 +213,65 @@ export default function FinalPage() {
       <div className="background-grid" />
       <Header updatedAt={data.updatedAt} />
 
-      <section className="final-stage-v2">
-        <div className="final-main-v2">
-          <div className="final-topline-v2">
+      <section className="final-stage">
+        <div className="final-main">
+          <div className="final-hero">
             <div>
-              <span>GRANDE FINAL</span>
-              <h2>COPA DAS COLMEIAS</h2>
-              <p>A decisão do título fica em destaque. A disputa pelo 3º lugar aparece em apoio.</p>
+              <span>JOGO DECISIVO</span>
+              <h2>GRANDE FINAL</h2>
+              <p>Cada contrato é um gol. A loja que produzir mais levanta a Copa das Colmeias.</p>
             </div>
-            <div className="final-date-card-v2">
+            <div className="date-card">
+              <small>DATA</small>
               <strong>{finalDate}</strong>
-              <small>{scheduleNote}</small>
+              <em>{scheduleNote}</em>
             </div>
           </div>
 
-          {finalMatch ? (
-            <FinalMatchCard match={finalMatch} />
-          ) : (
-            <WaitingFinalCard />
-          )}
+          {finalMatch ? <FinalMatchCard match={finalMatch} /> : <WaitingFinalCard />}
         </div>
 
-        <aside className="final-side-v2">
-          <ThirdPlaceBox match={thirdPlaceMatch} />
+        <aside className="final-aside">
+          <div className="side-panel title-panel">
+            <span>DECISÃO</span>
+            <strong>TÍTULO DA COPA</strong>
+            <p>A final ocupa o painel principal. O ranking geral segue como referência lateral.</p>
+          </div>
 
-          <div className="side-panel ranking-side-panel">
-            <div className="panel-title-v2">TOP 10 GERAL</div>
+          <div className="side-panel ranking-panel">
+            <div className="panel-title">TOP 10 GERAL</div>
             <p><strong>{rankingWindowLabel}</strong> • Ranking por valor produzido.</p>
-            <div key={rankingPage} className="ranking-list-v2">
+            <div key={rankingPage} className="ranking-list">
               {visibleRanking.map((row) => <RankingItem key={`${row.position}-${row.name}`} row={row} />)}
             </div>
           </div>
         </aside>
       </section>
 
-      <footer className="ticker-bar-v2">
-        <div className="ticker-label-v2"><HoneyIcon /><strong>11º AO 20º</strong></div>
-        <div className="ticker-track-v2"><div className="ticker-content-v2">{tickerText}</div></div>
-        <div className="footer-brand-v2">CREDVIX • Cada contrato é um gol</div>
+      <footer className="ticker-bar">
+        <div className="ticker-label"><HoneyIcon /><strong>11º AO 20º</strong></div>
+        <div className="ticker-track"><div className="ticker-content">{tickerText}</div></div>
+        <div className="footer-brand">CREDVIX • CADA CONTRATO É UM GOL</div>
       </footer>
 
       {activeGoal && <GoalOverlay goal={activeGoal} />}
     </main>
+  );
+}
+
+function Header({ updatedAt }: { updatedAt: string }) {
+  return (
+    <header className="topbar">
+      <div className="brand-area">
+        <div className="brand-mark"><HoneyIcon /></div>
+        <div>
+          <h1>COPA DAS COLMEIAS</h1>
+          <p>GRANDE FINAL AO VIVO • DISPUTA POR CONTRATOS</p>
+        </div>
+      </div>
+      <LivePill />
+      <div className="update-box">Atualizado às <strong>{updatedAt}</strong></div>
+    </header>
   );
 }
 
@@ -271,23 +283,23 @@ function FinalMatchCard({ match }: { match: Match }) {
   const status = match.leftScore === match.rightScore ? 'DESEMPATE POR VALOR' : 'VANTAGEM POR CONTRATOS';
 
   return (
-    <article className={`final-card-v2 ${match.statusType}`}>
-      <div className="final-status-row-v2">
+    <article className={`final-card ${match.statusType}`}>
+      <div className="status-row">
         <span><strong>FINAL</strong> • {status}</span>
         <em>{match.leftScore === match.rightScore ? 'Empate no placar' : match.distance}</em>
       </div>
 
-      <div className="final-score-row-v2">
-        <TeamBlock team={match.left} align="left" advancing={leftAdvancing} size="large" />
-        <div className="final-score-core-v2">
+      <div className="score-row">
+        <TeamBlock team={match.left} align="left" advancing={leftAdvancing} />
+        <div className="score-core">
           <span>{match.leftScore}</span>
           <em>x</em>
           <span>{match.rightScore}</span>
         </div>
-        <TeamBlock team={match.right} align="right" advancing={rightAdvancing} size="large" />
+        <TeamBlock team={match.right} align="right" advancing={rightAdvancing} />
       </div>
 
-      <div className="final-meta-grid-v2">
+      <div className="meta-grid">
         <MetaItem label={leaderLabel} value={match.advancing} highlight />
         <MetaItem label="Critério atual" value={match.criterion} />
         <MetaItem label="Distância" value={match.distance} highlight={match.distance.includes('+')} />
@@ -296,35 +308,9 @@ function FinalMatchCard({ match }: { match: Match }) {
   );
 }
 
-function ThirdPlaceBox({ match }: { match: Match | null }) {
-  return (
-    <div className="side-panel third-place-panel">
-      <div className="panel-title-v2 bronze-title">DISPUTA PELO 3º LUGAR</div>
-      {match ? (
-        <div className="third-match-content">
-          <div className="third-mini-row">
-            <CompactTeam team={match.left} />
-            <div className="third-score"><span>{match.leftScore}</span><em>x</em><span>{match.rightScore}</span></div>
-            <CompactTeam team={match.right} right />
-          </div>
-          <div className="third-meta">
-            <strong>{match.advancing}</strong>
-            <small>{match.criterion} • {match.distance}</small>
-          </div>
-        </div>
-      ) : (
-        <div className="third-waiting">
-          <strong>Aguardando confronto</strong>
-          <small>Quando a linha do 3º lugar entrar no placar, ela aparece aqui sem disputar destaque com a final.</small>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function WaitingFinalCard() {
   return (
-    <div className="final-card-v2 final-waiting-card-v2">
+    <div className="final-card waiting-card">
       <div>
         <h3>Aguardando finalistas</h3>
         <p>Assim que a aba de placar receber a linha da FINAL, este painel passa a mostrar o confronto decisivo.</p>
@@ -333,27 +319,11 @@ function WaitingFinalCard() {
   );
 }
 
-function Header({ updatedAt }: { updatedAt: string }) {
+function TeamBlock({ team, align, advancing }: { team: Team; align: 'left' | 'right'; advancing: boolean }) {
   return (
-    <header className="final-topbar-v2">
-      <div className="brand-area-v2">
-        <div className="brand-mark-v2"><HoneyIcon /></div>
-        <div>
-          <h1>COPA DAS COLMEIAS</h1>
-          <p>GRANDE FINAL AO VIVO • DISPUTA POR CONTRATOS</p>
-        </div>
-      </div>
-      <LivePill />
-      <div className="update-box-v2">Atualizado às <strong>{updatedAt}</strong></div>
-    </header>
-  );
-}
-
-function TeamBlock({ team, align, advancing, size = 'normal' }: { team: Team; align: 'left' | 'right'; advancing: boolean; size?: 'normal' | 'large' }) {
-  return (
-    <div className={`team-block-v2 ${align} ${size} ${advancing ? 'advancing' : ''}`}>
+    <div className={`team-block ${align} ${advancing ? 'advancing' : ''}`}>
       {align === 'left' && <TeamBadge team={team} />}
-      <div className="team-name-v2">
+      <div className="team-name">
         <strong>{team.primary}</strong>
         <span className={`tone-${team.tone}`}>{team.secondary}</span>
       </div>
@@ -362,18 +332,9 @@ function TeamBlock({ team, align, advancing, size = 'normal' }: { team: Team; al
   );
 }
 
-function CompactTeam({ team, right = false }: { team: Team; right?: boolean }) {
-  return (
-    <div className={`compact-team ${right ? 'right' : ''}`}>
-      <strong>{team.primary}</strong>
-      <span>{team.secondary}</span>
-    </div>
-  );
-}
-
 function TeamBadge({ team }: { team: Team }) {
   return (
-    <div className={`team-badge-v2 tone-${team.tone}`} aria-label={team.name}>
+    <div className={`team-badge tone-${team.tone}`} aria-label={team.name}>
       {team.badge === 'mountain' && <svg viewBox="0 0 64 64"><path d="M8 45l16-20 10 12 8-8 14 16H8z" /><path d="M8 50c12-5 23 5 34 0 6-3 10-2 14 0" /></svg>}
       {team.badge === 'city' && <svg viewBox="0 0 64 64"><path d="M12 46h40" /><path d="M17 46V30h8v16M29 46V20h8v26M41 46V27h8v19" /><path d="M8 52c10-4 20 4 30 0 8-3 12-2 18 0" /></svg>}
       {team.badge === 'landmark' && <svg viewBox="0 0 64 64"><path d="M12 46h40" /><path d="M22 46V27l10-9 10 9v19" /><path d="M28 46V34h8v12" /><path d="M10 52c9-4 19 4 29 0 7-3 12-2 15 0" /></svg>}
@@ -384,9 +345,10 @@ function TeamBadge({ team }: { team: Team }) {
 
 function RankingItem({ row }: { row: RankingRow }) {
   const tone = row.position <= 2 ? 'green' : row.position <= 4 ? 'orange' : 'blue';
+
   return (
-    <div className="ranking-item-v2">
-      <span className={`rank-badge-v2 ${tone}`}>{row.position}</span>
+    <div className="ranking-item">
+      <span className={`rank-badge ${tone}`}>{row.position}</span>
       <strong>{row.name}</strong>
       <em>{row.value}</em>
     </div>
@@ -395,7 +357,7 @@ function RankingItem({ row }: { row: RankingRow }) {
 
 function MetaItem({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="meta-item-v2">
+    <div className="meta-item">
       <span>{label}</span>
       <strong className={highlight ? 'highlight' : ''}>{value}</strong>
     </div>
@@ -403,17 +365,17 @@ function MetaItem({ label, value, highlight = false }: { label: string; value: s
 }
 
 function LivePill({ compact = false }: { compact?: boolean }) {
-  return <span className={`live-pill-v2 ${compact ? 'compact' : ''}`}><i /> AO VIVO</span>;
+  return <span className={`live-pill ${compact ? 'compact' : ''}`}><i /> AO VIVO</span>;
 }
 
 function GoalOverlay({ goal }: { goal: GoalEvent }) {
   return (
-    <div className="goal-layer-v2" role="status" aria-live="assertive">
-      <div className="goal-card-v2">
+    <div className="goal-layer" role="status" aria-live="assertive">
+      <div className="goal-card">
         <LivePill compact />
         <h2>GOL!</h2>
-        <div className="goal-team-line-v2"><span>🐝</span><strong>{goal.teamName} marca!</strong></div>
-        <div className="goal-score-v2"><span>PLACAR:</span><strong>{goal.score}</strong></div>
+        <div className="goal-team-line"><span>🐝</span><strong>{goal.teamName} marca!</strong></div>
+        <div className="goal-score"><span>PLACAR:</span><strong>{goal.score}</strong></div>
         <p>Cada contrato muda o jogo.</p>
       </div>
     </div>
@@ -434,18 +396,6 @@ function getFinalMatch(matches: Match[]) {
   return matches.find((match) => normalizeText(match.id).includes('final')) ?? matches[0] ?? null;
 }
 
-function getThirdPlaceMatch(matches: Match[], finalId?: string) {
-  const explicit = matches.find((match) => {
-    const id = normalizeText(match.id);
-    return id.includes('terceiro') || id.includes('terceira') || id.includes('bronze') || id.includes('3l') || id.includes('3o') || id.includes('3 lugar') || id.includes('terceiro lugar');
-  });
-
-  if (explicit) return explicit;
-
-  if (!finalId) return matches[1] ?? null;
-  return matches.find((match) => match.id !== finalId) ?? null;
-}
-
 function isPortoSeguro(value: string) {
   return normalizeText(value).includes('porto seguro');
 }
@@ -457,95 +407,227 @@ function normalizeText(value: string) {
 const styles = `
   * { box-sizing: border-box; }
   body { margin: 0; background: #020812; }
-  .final-screen { --gold: #ffc22a; --orange: #ff8619; --green: #58c94f; --blue: #3c94ea; position: relative; width: 100vw; height: 100vh; overflow: hidden; background: radial-gradient(circle at 50% -5%, rgba(255,194,42,.15), transparent 30%), linear-gradient(135deg, #020812 0%, #061524 54%, #020812 100%); color: #f5f7fb; isolation: isolate; }
-  .background-grid { position: absolute; inset: 0; z-index: -1; opacity: .34; background-image: linear-gradient(30deg, rgba(255,255,255,.04) 1px, transparent 1px), radial-gradient(circle at 1px 1px, rgba(255,194,42,.10) 1px, transparent 0); background-size: 92px 92px, 34px 34px; }
+
+  .final-screen {
+    --gold: #ffc22a;
+    --orange: #ff8619;
+    --green: #58c94f;
+    --blue: #3c94ea;
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% -10%, rgba(255, 194, 42, 0.18), transparent 30%),
+      radial-gradient(circle at 12% 96%, rgba(60, 148, 234, 0.14), transparent 30%),
+      linear-gradient(135deg, #020812 0%, #061524 54%, #020812 100%);
+    color: #f5f7fb;
+    isolation: isolate;
+  }
+
+  .background-grid {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    opacity: .34;
+    background-image:
+      linear-gradient(30deg, rgba(255,255,255,.04) 1px, transparent 1px),
+      radial-gradient(circle at 1px 1px, rgba(255,194,42,.10) 1px, transparent 0);
+    background-size: 92px 92px, 34px 34px;
+  }
+
+  .loader-card h1,
+  .topbar h1,
+  .final-hero h2,
+  .final-hero span,
+  .final-card,
+  .panel-title,
+  .team-name,
+  .score-core,
+  .rank-badge,
+  .goal-card h2,
+  .footer-brand {
+    font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: .025em;
+  }
+
   .loading-screen { display: grid; place-items: center; }
   .loader-card { width: min(640px, 70vw); padding: 42px 48px; text-align: center; border: 1px solid rgba(255,194,42,.45); background: rgba(5,17,29,.86); box-shadow: 0 30px 80px rgba(0,0,0,.6), inset 0 0 80px rgba(255,194,42,.07); }
-  .loader-card h1, .final-topbar-v2 h1, .final-topline-v2 h2, .final-topline-v2 span, .final-card-v2, .panel-title-v2, .team-name-v2, .final-score-core-v2, .rank-badge-v2, .goal-card-v2 h2 { font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; text-transform: uppercase; letter-spacing: .025em; }
-  .brand-mark-v2, .brand-mark.mini { width: 54px; height: 54px; display: grid; place-items: center; border: 2px solid var(--gold); clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%); }
-  .brand-mark-v2 svg, .brand-mark.mini svg, .ticker-label-v2 svg { width: 34px; height: 34px; }
-  .brand-mark-v2 svg path, .brand-mark.mini svg path, .ticker-label-v2 svg path { fill: none; stroke: var(--gold); stroke-width: 4; stroke-linejoin: round; }
-  .final-topbar-v2 { height: 92px; padding: 16px 28px 12px; display: grid; grid-template-columns: 1fr 110px 250px; align-items: center; gap: 22px; border-bottom: 1px solid rgba(255,255,255,.14); background: rgba(2,8,18,.94); }
-  .brand-area-v2 { display: flex; align-items: center; gap: 16px; min-width: 0; }
-  .final-topbar-v2 h1 { margin: 0; font-size: clamp(32px, 3.4vw, 58px); line-height: .82; font-weight: 900; font-style: italic; }
-  .final-topbar-v2 p { margin: 6px 0 0; color: var(--gold); font-size: 13px; font-weight: 800; }
-  .update-box-v2 { justify-self: end; color: rgba(255,255,255,.78); font-weight: 800; text-transform: uppercase; }
-  .update-box-v2 strong { color: var(--gold); font-size: 26px; }
-  .live-pill-v2 { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 14px; border: 1px solid rgba(88,201,79,.42); border-radius: 999px; color: #dfffe0; font-size: 13px; font-weight: 900; }
-  .live-pill-v2.compact { height: 26px; padding: 0 10px; font-size: 11px; }
-  .live-pill-v2 i { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 5px rgba(88,201,79,.15); }
-  .final-stage-v2 { height: calc(100vh - 148px); padding: 18px 24px 16px; display: grid; grid-template-columns: minmax(0, 1.62fr) minmax(355px, .68fr); gap: 18px; }
-  .final-main-v2 { min-height: 0; display: grid; grid-template-rows: 112px 1fr; gap: 18px; }
-  .final-side-v2 { min-height: 0; display: grid; grid-template-rows: 0.72fr 1.28fr; gap: 18px; }
-  .final-topline-v2 { padding: 16px 24px; display: grid; grid-template-columns: 1fr 210px; align-items: center; gap: 18px; border: 1px solid rgba(255,255,255,.16); background: linear-gradient(135deg, rgba(9,21,35,.96), rgba(2,8,18,.76)); box-shadow: 0 22px 70px rgba(0,0,0,.24), inset 0 0 55px rgba(255,255,255,.025); }
-  .final-topline-v2 span { display: block; color: var(--gold); font-size: 20px; font-weight: 900; }
-  .final-topline-v2 h2 { margin: 4px 0 0; color: white; font-size: clamp(48px, 5vw, 82px); line-height: .8; font-weight: 900; font-style: italic; }
-  .final-topline-v2 p { margin: 8px 0 0; color: rgba(255,255,255,.68); font-size: 14px; }
-  .final-date-card-v2 { padding: 12px 16px; text-align: center; border: 2px solid var(--gold); background: rgba(2,9,17,.72); transform: skewX(-8deg); }
-  .final-date-card-v2 strong { display: block; color: white; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: 48px; line-height: .82; font-weight: 900; }
-  .final-date-card-v2 small { display: block; margin-top: 8px; color: var(--gold); font-size: 11px; font-weight: 800; line-height: 1.14; text-transform: uppercase; transform: skewX(8deg); }
-  .final-card-v2 { min-height: 0; padding: 24px 30px 26px; display: grid; grid-template-rows: auto 1fr auto; border: 1px solid rgba(255,255,255,.18); background: radial-gradient(circle at 50% 0%, rgba(255,194,42,.16), transparent 42%), linear-gradient(180deg, rgba(7,20,34,.98), rgba(5,16,28,.94)); box-shadow: 0 24px 80px rgba(0,0,0,.42), inset 0 0 80px rgba(255,255,255,.03); overflow: hidden; }
-  .final-status-row-v2 { display: flex; align-items: center; justify-content: space-between; gap: 18px; color: rgba(255,255,255,.74); font-weight: 900; text-transform: uppercase; }
-  .final-status-row-v2 strong, .final-status-row-v2 em { color: var(--gold); font-style: normal; }
-  .final-score-row-v2 { display: grid; grid-template-columns: minmax(230px, 1fr) minmax(240px, .64fr) minmax(230px, 1fr); align-items: center; gap: 24px; min-height: 245px; }
-  .team-block-v2 { display: flex; align-items: center; gap: 18px; min-width: 0; }
-  .team-block-v2.right { justify-content: flex-end; text-align: right; }
-  .team-badge-v2 { width: clamp(80px, 6vw, 112px); height: clamp(80px, 6vw, 112px); display: grid; place-items: center; border: 2px solid currentColor; border-radius: 50%; background: rgba(255,255,255,.04); flex: 0 0 auto; }
-  .team-badge-v2 svg { width: 66%; height: 66%; }
-  .team-badge-v2 svg path { fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+  .brand-mark, .brand-mark.mini { width: 54px; height: 54px; display: grid; place-items: center; border: 2px solid var(--gold); clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%); }
+  .brand-mark svg, .brand-mark.mini svg, .ticker-label svg { width: 34px; height: 34px; }
+  .brand-mark svg path, .brand-mark.mini svg path, .ticker-label svg path { fill: none; stroke: var(--gold); stroke-width: 4; stroke-linejoin: round; }
+
+  .topbar {
+    height: 88px;
+    padding: 15px 26px 12px;
+    display: grid;
+    grid-template-columns: 1fr 110px 250px;
+    align-items: center;
+    gap: 22px;
+    border-bottom: 1px solid rgba(255,255,255,.14);
+    background: rgba(2,8,18,.94);
+  }
+
+  .brand-area { display: flex; align-items: center; gap: 16px; min-width: 0; }
+  .topbar h1 { margin: 0; font-size: clamp(33px, 3.5vw, 58px); line-height: .82; font-weight: 900; font-style: italic; }
+  .topbar p { margin: 6px 0 0; color: var(--gold); font-size: 13px; font-weight: 800; }
+  .update-box { justify-self: end; color: rgba(255,255,255,.78); font-weight: 800; text-transform: uppercase; }
+  .update-box strong { color: var(--gold); font-size: 30px; }
+
+  .live-pill { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 14px; border: 1px solid rgba(88,201,79,.42); border-radius: 999px; color: #dfffe0; font-size: 13px; font-weight: 900; }
+  .live-pill.compact { height: 26px; padding: 0 10px; font-size: 11px; }
+  .live-pill i { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 5px rgba(88,201,79,.15); }
+
+  .final-stage {
+    height: calc(100vh - 144px);
+    padding: 16px 20px 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 362px;
+    gap: 16px;
+  }
+
+  .final-main {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: 150px 1fr;
+    gap: 16px;
+  }
+
+  .final-hero {
+    padding: 18px 24px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 205px;
+    align-items: center;
+    gap: 18px;
+    border: 1px solid rgba(255,255,255,.16);
+    background: linear-gradient(135deg, rgba(9,21,35,.96), rgba(2,8,18,.76));
+    box-shadow: 0 22px 70px rgba(0,0,0,.24), inset 0 0 55px rgba(255,255,255,.025);
+    overflow: hidden;
+  }
+
+  .final-hero span { display: block; color: var(--gold); font-size: 22px; font-weight: 900; }
+  .final-hero h2 { margin: 2px 0 0; color: white; font-size: clamp(74px, 7.2vw, 122px); line-height: .78; font-weight: 900; font-style: italic; text-shadow: 0 10px 38px rgba(0,0,0,.48); white-space: nowrap; }
+  .final-hero p { margin: 10px 0 0; color: rgba(255,255,255,.74); font-size: 15px; font-weight: 700; }
+
+  .date-card {
+    padding: 13px 14px;
+    text-align: center;
+    border: 2px solid var(--gold);
+    background: rgba(2,9,17,.72);
+    transform: skewX(-8deg);
+  }
+
+  .date-card small,
+  .date-card em { display: block; transform: skewX(8deg); }
+  .date-card small { color: var(--gold); font-size: 12px; font-weight: 900; }
+  .date-card strong { display: block; color: white; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: 54px; line-height: .82; font-weight: 900; }
+  .date-card em { margin-top: 8px; color: var(--gold); font-size: 10px; font-style: normal; font-weight: 900; line-height: 1.1; text-transform: uppercase; }
+
+  .final-card {
+    min-height: 0;
+    padding: 24px 28px 22px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    border: 1px solid rgba(255,255,255,.18);
+    background: radial-gradient(circle at 50% 0%, rgba(255,194,42,.16), transparent 42%), linear-gradient(180deg, rgba(7,20,34,.98), rgba(5,16,28,.94));
+    box-shadow: 0 24px 80px rgba(0,0,0,.42), inset 0 0 80px rgba(255,255,255,.03);
+    overflow: hidden;
+  }
+
+  .status-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; color: rgba(255,255,255,.74); font-weight: 900; text-transform: uppercase; }
+  .status-row strong, .status-row em { color: var(--gold); font-style: normal; }
+
+  .score-row {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(250px, .56fr) minmax(260px, 1fr);
+    align-items: center;
+    gap: 26px;
+    min-height: 0;
+  }
+
+  .team-block { display: flex; align-items: center; gap: 18px; min-width: 0; }
+  .team-block.right { justify-content: flex-end; text-align: right; }
+  .team-badge { width: clamp(84px, 6.2vw, 116px); height: clamp(84px, 6.2vw, 116px); display: grid; place-items: center; border: 2px solid currentColor; border-radius: 50%; background: rgba(255,255,255,.04); flex: 0 0 auto; }
+  .team-badge svg { width: 66%; height: 66%; }
+  .team-badge svg path { fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+
   .tone-green { color: var(--green); }
   .tone-blue { color: var(--blue); }
   .tone-gold { color: var(--gold); }
   .tone-orange { color: var(--orange); }
-  .team-name-v2 strong { display: block; color: white; font-size: clamp(44px, 4.4vw, 76px); line-height: .82; font-weight: 900; font-style: italic; overflow: hidden; text-overflow: ellipsis; }
-  .team-name-v2 span { display: block; margin-top: 6px; font-size: clamp(25px, 2.25vw, 42px); line-height: .95; font-weight: 900; font-style: italic; overflow: hidden; text-overflow: ellipsis; }
-  .final-score-core-v2 { height: clamp(134px, 17vh, 198px); display: flex; align-items: center; justify-content: center; gap: 22px; border: 1px solid rgba(255,194,42,.34); background: radial-gradient(circle at 50% 45%, rgba(255,134,25,.14), rgba(3,11,20,.86)); box-shadow: inset 0 0 55px rgba(255,194,42,.06), 0 22px 60px rgba(0,0,0,.3); clip-path: polygon(9% 0, 91% 0, 100% 50%, 91% 100%, 9% 100%, 0 50%); }
-  .final-score-core-v2 span { font-size: clamp(90px, 10.2vw, 165px); font-weight: 900; font-style: italic; line-height: .82; color: white; text-shadow: 0 8px 28px rgba(0,0,0,.45); }
-  .final-score-core-v2 em { font-size: clamp(34px, 3.2vw, 54px); font-weight: 900; font-style: italic; color: var(--orange); }
-  .final-meta-grid-v2 { display: grid; grid-template-columns: 1.25fr .85fr .85fr; gap: 12px; }
-  .meta-item-v2 { min-height: 72px; padding: 12px 14px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.035); }
-  .meta-item-v2 span { display: block; color: rgba(255,255,255,.58); font-size: 11px; font-weight: 900; text-transform: uppercase; }
-  .meta-item-v2 strong { display: block; margin-top: 7px; color: white; font-size: clamp(15px, 1.35vw, 23px); line-height: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .meta-item-v2 strong.highlight { color: var(--gold); }
-  .final-waiting-card-v2 { display: grid; place-items: center; text-align: center; color: rgba(255,255,255,.72); }
-  .final-waiting-card-v2 h3 { margin: 0; color: white; font-size: clamp(48px, 5vw, 84px); font-style: italic; text-transform: uppercase; }
+
+  .team-name { min-width: 0; }
+  .team-name strong { display: block; color: white; font-size: clamp(54px, 4.6vw, 84px); line-height: .82; font-weight: 900; font-style: italic; overflow: hidden; text-overflow: ellipsis; }
+  .team-name span { display: block; margin-top: 7px; font-size: clamp(29px, 2.35vw, 44px); line-height: .95; font-weight: 900; font-style: italic; overflow: hidden; text-overflow: ellipsis; }
+
+  .score-core {
+    height: clamp(150px, 20vh, 214px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    border: 1px solid rgba(255,194,42,.34);
+    background: radial-gradient(circle at 50% 45%, rgba(255,134,25,.14), rgba(3,11,20,.86));
+    box-shadow: inset 0 0 55px rgba(255,194,42,.06), 0 22px 60px rgba(0,0,0,.3);
+    clip-path: polygon(9% 0, 91% 0, 100% 50%, 91% 100%, 9% 100%, 0 50%);
+  }
+
+  .score-core span { font-size: clamp(104px, 10.8vw, 178px); font-weight: 900; font-style: italic; line-height: .82; color: white; text-shadow: 0 8px 28px rgba(0,0,0,.45); }
+  .score-core em { font-size: clamp(38px, 3.4vw, 58px); font-weight: 900; font-style: italic; color: var(--orange); }
+
+  .meta-grid { display: grid; grid-template-columns: 1.25fr .85fr .85fr; gap: 12px; }
+  .meta-item { min-height: 72px; padding: 12px 14px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.035); }
+  .meta-item span { display: block; color: rgba(255,255,255,.58); font-size: 11px; font-weight: 900; text-transform: uppercase; }
+  .meta-item strong { display: block; margin-top: 7px; color: white; font-size: clamp(16px, 1.4vw, 24px); line-height: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta-item strong.highlight { color: var(--gold); }
+
+  .waiting-card { display: grid; place-items: center; text-align: center; color: rgba(255,255,255,.72); }
+  .waiting-card h3 { margin: 0; color: white; font-size: clamp(58px, 6vw, 96px); font-style: italic; text-transform: uppercase; }
+
+  .final-aside { min-height: 0; display: grid; grid-template-rows: 124px 1fr; gap: 16px; }
   .side-panel { min-height: 0; padding: 16px 18px; border: 1px solid rgba(255,255,255,.16); background: linear-gradient(180deg, rgba(7,20,34,.96), rgba(5,16,28,.92)); box-shadow: 0 18px 55px rgba(0,0,0,.30), inset 0 0 48px rgba(255,255,255,.025); overflow: hidden; }
-  .panel-title-v2 { color: var(--gold); font-size: clamp(20px, 1.55vw, 28px); font-weight: 900; }
-  .bronze-title { color: #d7a15b; }
-  .third-match-content { margin-top: 14px; display: grid; gap: 14px; }
-  .third-mini-row { display: grid; grid-template-columns: 1fr 100px 1fr; align-items: center; gap: 10px; }
-  .compact-team { min-width: 0; }
-  .compact-team.right { text-align: right; }
-  .compact-team strong { display: block; color: white; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(22px, 1.8vw, 34px); line-height: .92; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .compact-team span { display: block; margin-top: 4px; color: rgba(255,255,255,.72); font-size: 12px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .third-score { height: 64px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid rgba(215,161,91,.45); background: rgba(215,161,91,.08); }
-  .third-score span { color: white; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: 48px; font-weight: 900; line-height: .8; }
-  .third-score em { color: #d7a15b; font-style: normal; font-weight: 900; }
-  .third-meta { padding: 12px 14px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.035); }
-  .third-meta strong { display: block; color: #d7a15b; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .third-meta small, .third-waiting small { display: block; margin-top: 6px; color: rgba(255,255,255,.70); line-height: 1.25; }
-  .third-waiting { height: calc(100% - 36px); display: grid; align-content: center; gap: 6px; color: rgba(255,255,255,.76); }
-  .third-waiting strong { color: white; font-size: 20px; text-transform: uppercase; }
-  .ranking-side-panel p { margin: 7px 0 13px; color: rgba(255,255,255,.70); font-size: 13px; }
-  .ranking-list-v2 { display: grid; gap: 10px; animation: rankingSwapIn .68s cubic-bezier(.18,.72,.18,1) both; }
+  .title-panel span { display: block; color: var(--gold); font-size: 13px; font-weight: 900; text-transform: uppercase; }
+  .title-panel strong { display: block; margin-top: 7px; color: white; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: 34px; line-height: .9; font-weight: 900; text-transform: uppercase; }
+  .title-panel p { margin: 9px 0 0; color: rgba(255,255,255,.70); font-size: 13px; line-height: 1.18; }
+
+  .panel-title { color: var(--gold); font-size: clamp(22px, 1.7vw, 30px); font-weight: 900; }
+  .ranking-panel p { margin: 7px 0 13px; color: rgba(255,255,255,.70); font-size: 13px; }
+  .ranking-list { display: grid; gap: 10px; animation: rankingSwapIn .68s cubic-bezier(.18,.72,.18,1) both; }
   @keyframes rankingSwapIn { from { opacity: 0; transform: translateY(8px); filter: blur(4px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
-  .ranking-item-v2 { min-height: 46px; display: grid; grid-template-columns: 42px 1fr 92px; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.08); }
-  .rank-badge-v2 { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: #07111e; font-weight: 900; background: var(--blue); }
-  .rank-badge-v2.green { background: var(--green); }
-  .rank-badge-v2.orange { background: var(--orange); }
-  .ranking-item-v2 strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: white; font-weight: 900; }
-  .ranking-item-v2 em { color: var(--gold); font-style: normal; text-align: right; font-weight: 900; white-space: nowrap; }
-  .ticker-bar-v2 { height: 56px; padding: 0 24px; display: grid; grid-template-columns: 170px 1fr 260px; align-items: center; gap: 18px; border-top: 1px solid rgba(255,255,255,.13); background: rgba(2,8,18,.94); }
-  .ticker-label-v2 { display: flex; align-items: center; gap: 10px; color: white; }
-  .ticker-track-v2 { overflow: hidden; white-space: nowrap; }
-  .ticker-content-v2 { display: inline-block; color: rgba(255,255,255,.78); font-weight: 800; animation: finalTicker 38s linear infinite; }
+  .ranking-item { min-height: 50px; display: grid; grid-template-columns: 42px 1fr 96px; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .rank-badge { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: #07111e; font-weight: 900; background: var(--blue); }
+  .rank-badge.green { background: var(--green); }
+  .rank-badge.orange { background: var(--orange); }
+  .ranking-item strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: white; font-weight: 900; }
+  .ranking-item em { color: var(--gold); font-style: normal; text-align: right; font-weight: 900; white-space: nowrap; }
+
+  .ticker-bar { height: 56px; padding: 0 24px; display: grid; grid-template-columns: 170px 1fr 296px; align-items: center; gap: 18px; border-top: 1px solid rgba(255,255,255,.13); background: rgba(2,8,18,.94); }
+  .ticker-label { display: flex; align-items: center; gap: 10px; color: white; }
+  .ticker-track { overflow: hidden; white-space: nowrap; }
+  .ticker-content { display: inline-block; color: rgba(255,255,255,.78); font-weight: 800; animation: finalTicker 38s linear infinite; }
   @keyframes finalTicker { from { transform: translateX(45%); } to { transform: translateX(-100%); } }
-  .footer-brand-v2 { justify-self: end; color: var(--gold); font-weight: 900; text-transform: uppercase; }
-  .goal-layer-v2 { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(2,8,18,.78); backdrop-filter: blur(8px); }
-  .goal-card-v2 { width: min(760px, 70vw); padding: 36px 42px; text-align: center; border: 2px solid var(--gold); background: radial-gradient(circle at 50% 0%, rgba(255,194,42,.20), rgba(5,16,28,.96)); box-shadow: 0 30px 120px rgba(0,0,0,.65); }
-  .goal-card-v2 h2 { margin: 18px 0; color: white; font-size: clamp(100px, 12vw, 180px); line-height: .8; font-style: italic; }
-  .goal-team-line-v2 { display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--gold); font-size: 28px; }
-  .goal-score-v2 { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 16px; }
-  .goal-score-v2 strong { color: white; font-size: 52px; }
-  @media (max-height: 760px) { .final-topbar-v2 { height: 82px; padding-top: 12px; } .final-stage-v2 { height: calc(100vh - 136px); padding-top: 14px; padding-bottom: 12px; } .ticker-bar-v2 { height: 54px; } .final-main-v2 { grid-template-rows: 96px 1fr; gap: 14px; } .final-side-v2, .final-stage-v2 { gap: 14px; } .final-card-v2 { padding: 20px 24px; } .final-score-row-v2 { min-height: 220px; } .final-score-core-v2 span { font-size: clamp(80px, 9vw, 142px); } }
+  .footer-brand { justify-self: end; color: var(--gold); font-weight: 900; font-size: 14px; }
+
+  .goal-layer { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(2,8,18,.78); backdrop-filter: blur(8px); }
+  .goal-card { width: min(760px, 70vw); padding: 36px 42px; text-align: center; border: 2px solid var(--gold); background: radial-gradient(circle at 50% 0%, rgba(255,194,42,.20), rgba(5,16,28,.96)); box-shadow: 0 30px 120px rgba(0,0,0,.65); }
+  .goal-card h2 { margin: 18px 0; color: white; font-size: clamp(100px, 12vw, 180px); line-height: .8; font-style: italic; }
+  .goal-team-line { display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--gold); font-size: 28px; }
+  .goal-score { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 16px; }
+  .goal-score strong { color: white; font-size: 52px; }
+
+  @media (max-height: 760px) {
+    .topbar { height: 82px; padding-top: 12px; }
+    .final-stage { height: calc(100vh - 136px); padding-top: 12px; padding-bottom: 12px; gap: 14px; }
+    .ticker-bar { height: 54px; }
+    .final-main { grid-template-rows: 132px 1fr; gap: 14px; }
+    .final-aside { grid-template-rows: 114px 1fr; gap: 14px; }
+    .final-hero { padding: 14px 20px; }
+    .final-card { padding: 20px 24px; }
+    .score-row { gap: 22px; }
+    .score-core { height: clamp(136px, 18vh, 194px); }
+    .score-core span { font-size: clamp(88px, 9.6vw, 154px); }
+    .team-name strong { font-size: clamp(42px, 3.9vw, 68px); }
+    .team-name span { font-size: clamp(23px, 2vw, 36px); }
+  }
 `;
