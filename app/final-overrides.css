@@ -1,0 +1,142 @@
+/* Ajustes específicos do painel /final.
+   Mantidos separados para não mexer na lógica do placar. */
+
+.final-screen .topbar {
+  grid-template-columns: minmax(0, 1fr) 108px 214px !important;
+  gap: 12px !important;
+  align-items: center !important;
+  overflow: visible !important;
+}
+
+.final-screen .brand-area {
+  min-width: 0 !important;
+}
+
+.final-screen .topbar h1,
+.final-screen .topbar p {
+  white-space: nowrap !important;
+}
+
+.final-screen .live-pill {
+  justify-self: end !important;
+  align-self: center !important;
+  min-width: 96px !important;
+  height: 30px !important;
+  padding: 0 12px !important;
+  font-size: 12px !important;
+  position: relative !important;
+  z-index: 5 !important;
+  transform: none !important;
+}
+
+.final-screen .live-pill i {
+  width: 9px !important;
+  height: 9px !important;
+}
+
+.final-screen .update-box {
+  justify-self: end !important;
+  align-self: center !important;
+  width: 214px !important;
+  min-width: 0 !important;
+  height: 48px !important;
+  padding: 5px 12px !important;
+  display: block !important;
+  text-align: right !important;
+  position: relative !important;
+  z-index: 4 !important;
+  transform: none !important;
+  clip-path: none !important;
+  border: 1px solid rgba(255, 134, 25, 0.65) !important;
+  background: rgba(10, 18, 32, 0.94) !important;
+}
+
+.final-screen .update-box span {
+  display: block !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+}
+
+.final-screen .update-box strong {
+  display: block !important;
+  margin-top: 3px !important;
+  font-size: 29px !important;
+  line-height: .86 !important;
+}
+
+.final-screen .title-panel {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+}
+
+.final-screen .title-panel p {
+  display: none !important;
+}
+
+.final-screen .title-panel strong {
+  margin-top: 5px !important;
+}
+
+.final-screen .ranking-item {
+  min-height: 54px !important;
+  grid-template-columns: 36px minmax(0, 1fr) 88px !important;
+  gap: 9px !important;
+  padding-bottom: 4px !important;
+}
+
+.final-screen .ranking-item strong {
+  min-width: 0 !important;
+  white-space: normal !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+  max-height: 2.12em !important;
+  line-height: 1.06 !important;
+  font-size: 12px !important;
+}
+
+.final-screen .ranking-item em {
+  font-size: 12px !important;
+  white-space: nowrap !important;
+  text-align: right !important;
+}
+
+@media (max-height: 760px) {
+  .final-screen .topbar {
+    grid-template-columns: minmax(0, 1fr) 96px 198px !important;
+    gap: 10px !important;
+  }
+
+  .final-screen .live-pill {
+    min-width: 88px !important;
+    height: 28px !important;
+    font-size: 11px !important;
+    padding: 0 10px !important;
+  }
+
+  .final-screen .update-box {
+    width: 198px !important;
+    height: 44px !important;
+    padding: 5px 10px !important;
+  }
+
+  .final-screen .update-box strong {
+    font-size: 26px !important;
+  }
+
+  .final-screen .ranking-item {
+    min-height: 50px !important;
+    grid-template-columns: 34px minmax(0, 1fr) 84px !important;
+  }
+
+  .final-screen .ranking-item strong {
+    font-size: 11px !important;
+  }
+
+  .final-screen .ranking-item em {
+    font-size: 11px !important;
+  }
+}
