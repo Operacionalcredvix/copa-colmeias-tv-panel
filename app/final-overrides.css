@@ -104,6 +104,30 @@
   text-align: right !important;
 }
 
+/* Mais respiro entre os cards inferiores do placar e a barra do rodape. */
+.final-screen .final-card {
+  padding-bottom: 34px !important;
+}
+
+.final-screen .score-row {
+  padding-bottom: 18px !important;
+}
+
+.final-screen .meta-grid {
+  margin-top: 10px !important;
+  margin-bottom: 18px !important;
+  transform: translateY(-8px) !important;
+}
+
+.final-screen .meta-item {
+  min-height: 60px !important;
+}
+
+.final-screen .ticker-bar {
+  border-top-color: rgba(255, 255, 255, 0.22) !important;
+  box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.22) !important;
+}
+
 @media (max-height: 760px) {
   .final-screen .topbar {
     grid-template-columns: minmax(0, 1fr) 96px 198px !important;
@@ -138,5 +162,23 @@
 
   .final-screen .ranking-item em {
     font-size: 11px !important;
+  }
+
+  .final-screen .final-card {
+    padding-bottom: 28px !important;
+  }
+
+  .final-screen .score-row {
+    padding-bottom: 14px !important;
+  }
+
+  .final-screen .meta-grid {
+    margin-top: 8px !important;
+    margin-bottom: 14px !important;
+    transform: translateY(-6px) !important;
+  }
+
+  .final-screen .meta-item {
+    min-height: 56px !important;
   }
 }
