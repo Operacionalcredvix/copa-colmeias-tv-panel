@@ -39,60 +39,26 @@ type PanelPayload = {
   matches: Match[];
   rankingTop: RankingRow[];
   ticker: RankingRow[];
-  source: 'apps-script' | 'mock' | 'normalized';
+  source: 'apps-script' | 'stale' | 'error' | 'normalized';
+  warning?: string;
+  diagnostics?: {
+    cache: 'fresh' | 'stale' | 'error';
+    responseMs: number;
+    fetchedAt?: string;
+  };
 };
 
-const MOCK_PAYLOAD: PanelPayload = {
-  ok: true,
-  updatedAt: '14h32',
-  headlineDate: '30/06',
-  source: 'mock',
-  matches: [
-    {
-      id: 'SF1',
-      status: 'VANTAGEM POR CONTRATOS',
-      statusType: 'contracts',
-      left: team('Cariacica Campo Grande', 'green', 'mountain'),
-      right: team('Cuiabá Prainha', 'blue', 'city'),
-      leftScore: 4,
-      rightScore: 2,
-      advancing: 'Cariacica Campo Grande',
-      criterion: 'Contratos',
-      distance: '+2 contratos'
-    },
-    {
-      id: 'SF2',
-      status: 'DESEMPATE POR VALOR',
-      statusType: 'value',
-      left: team('Vitória Praia do Canto', 'gold', 'landmark'),
-      right: team('Linhares Centro', 'blue', 'bridge'),
-      leftScore: 3,
-      rightScore: 3,
-      advancing: 'Vitória Praia do Canto',
-      criterion: 'Valor produzido',
-      distance: 'Empate'
-    }
-  ],
-  rankingTop: [
-    { position: 1, name: 'Cuiabá Prainha', value: 'R$ 68,4 mil' },
-    { position: 2, name: 'Linhares Centro', value: 'R$ 61,7 mil' },
-    { position: 3, name: 'Cariacica C. Grande', value: 'R$ 59,2 mil' },
-    { position: 4, name: 'Vitória Praia Canto', value: 'R$ 57,8 mil' },
-    { position: 5, name: 'Teixeira de Freitas', value: 'R$ 52,6 mil' }
-  ],
-  ticker: [
-    { position: 10, name: 'Cachoeiro Centro', value: 'R$ 44,3 mil' },
-    { position: 11, name: 'Teixeira de Freitas', value: 'R$ 42,9 mil' },
-    { position: 12, name: 'Serra Laranjeiras', value: 'R$ 41,8 mil' },
-    { position: 13, name: 'Vila Velha Centro', value: '' }
-  ]
-};
+let lastGoodPayload: {
+  payload: PanelPayload;
+  fetchedAt: number;
+} | null = null;
 
 export async function GET() {
+  const startedAt = Date.now();
   const appsScriptUrl = process.env.APPS_SCRIPT_URL;
 
   if (!appsScriptUrl) {
-    return jsonNoStore(MOCK_PAYLOAD);
+    return jsonNoStore(errorPayload('APPS_SCRIPT_URL não configurada.', startedAt));
   }
 
   try {
@@ -104,18 +70,35 @@ export async function GET() {
     });
 
     if (!response.ok) {
-      return jsonNoStore({ ...MOCK_PAYLOAD, source: 'mock', warning: `Apps Script respondeu HTTP ${response.status}` });
+      throw new Error(`Apps Script respondeu HTTP ${response.status}`);
     }
 
     const raw = await response.json();
     const normalized = normalizePayload(raw);
-    return jsonNoStore(normalized);
+
+    if (!normalized.ok || !Array.isArray(normalized.matches) || !Array.isArray(normalized.rankingTop)) {
+      throw new Error('Payload do Apps Script veio em formato inválido.');
+    }
+
+    const payload = withDiagnostics(normalized, 'fresh', startedAt);
+    lastGoodPayload = {
+      payload,
+      fetchedAt: Date.now()
+    };
+
+    return jsonNoStore(payload);
   } catch (error) {
-    return jsonNoStore({
-      ...MOCK_PAYLOAD,
-      source: 'mock',
-      warning: error instanceof Error ? error.message : 'Erro desconhecido ao consultar Apps Script'
-    });
+    const warning = error instanceof Error ? error.message : 'Erro desconhecido ao consultar Apps Script';
+
+    if (lastGoodPayload) {
+      return jsonNoStore(withDiagnostics({
+        ...lastGoodPayload.payload,
+        source: 'stale',
+        warning
+      }, 'stale', startedAt, lastGoodPayload.fetchedAt));
+    }
+
+    return jsonNoStore(errorPayload(warning, startedAt));
   }
 }
 
@@ -127,6 +110,34 @@ function jsonNoStore(payload: unknown) {
       Expires: '0'
     }
   });
+}
+
+function errorPayload(warning: string, startedAt: number): PanelPayload {
+  return {
+    ok: false,
+    updatedAt: currentHourLabel(),
+    headlineDate: '30/06',
+    source: 'error',
+    warning,
+    matches: [],
+    rankingTop: [],
+    ticker: [],
+    diagnostics: {
+      cache: 'error',
+      responseMs: Date.now() - startedAt
+    }
+  };
+}
+
+function withDiagnostics(payload: PanelPayload, cache: 'fresh' | 'stale' | 'error', startedAt: number, fetchedAt?: number): PanelPayload {
+  return {
+    ...payload,
+    diagnostics: {
+      cache,
+      responseMs: Date.now() - startedAt,
+      fetchedAt: fetchedAt ? new Date(fetchedAt).toISOString() : new Date().toISOString()
+    }
+  };
 }
 
 function normalizePayload(raw: unknown): PanelPayload {
@@ -142,37 +153,39 @@ function normalizePayload(raw: unknown): PanelPayload {
     };
   }
 
-  if (!isRecord(raw)) return MOCK_PAYLOAD;
+  if (!isRecord(raw)) {
+    return errorPayload('Payload vazio ou inválido recebido do Apps Script.', Date.now());
+  }
 
   const jogos = Array.isArray(raw.jogos) ? raw.jogos.filter(isRecord) : [];
   const matches = jogos.slice(0, 2).map((jogo, index) => normalizeMatch(jogo, index));
 
   const rankingSource = firstArray(raw, ['rankingTop', 'top10', 'ranking', 'classificacao', 'rankingGeral']);
-  const rankingTop = rankingSource.slice(0, 5).filter(isRecord).map(normalizeRankingRow);
-  const ticker = rankingSource.slice(9, 13).filter(isRecord).map(normalizeRankingRow);
+  const rankingTop = rankingSource.slice(0, 10).filter(isRecord).map(normalizeRankingRow);
+  const ticker = rankingSource.slice(10, 20).filter(isRecord).map(normalizeRankingRow);
 
   return {
-    ok: true,
+    ok: matches.length > 0 || rankingTop.length > 0,
     updatedAt: String(raw.updatedAt ?? raw.atualizadoAs ?? raw.ultimaAtualizacao ?? currentHourLabel()),
     headlineDate: String(raw.headlineDate ?? raw.dataFinal ?? '30/06'),
     source: 'normalized',
-    matches: matches.length ? matches : MOCK_PAYLOAD.matches,
-    rankingTop: rankingTop.length ? rankingTop : MOCK_PAYLOAD.rankingTop,
-    ticker: ticker.length ? ticker : MOCK_PAYLOAD.ticker
+    matches,
+    rankingTop,
+    ticker
   };
 }
 
 function normalizeMatch(jogo: AnyRecord, index: number): Match {
-  const leftName = pickString(jogo, ['leftName', 'timeA', 'lojaA', 'mandante', 'casa', 'equipeA', 'nomeLojaA'], MOCK_PAYLOAD.matches[index]?.left.name ?? 'Loja A');
-  const rightName = pickString(jogo, ['rightName', 'timeB', 'lojaB', 'visitante', 'fora', 'equipeB', 'nomeLojaB'], MOCK_PAYLOAD.matches[index]?.right.name ?? 'Loja B');
-  const leftScore = pickNumber(jogo, ['leftScore', 'scoreA', 'placarA', 'contratosA', 'golsA'], MOCK_PAYLOAD.matches[index]?.leftScore ?? 0);
-  const rightScore = pickNumber(jogo, ['rightScore', 'scoreB', 'placarB', 'contratosB', 'golsB'], MOCK_PAYLOAD.matches[index]?.rightScore ?? 0);
+  const leftName = pickString(jogo, ['leftName', 'timeA', 'lojaA', 'mandante', 'casa', 'equipeA', 'nomeLojaA'], 'Loja A');
+  const rightName = pickString(jogo, ['rightName', 'timeB', 'lojaB', 'visitante', 'fora', 'equipeB', 'nomeLojaB'], 'Loja B');
+  const leftScore = pickNumber(jogo, ['leftScore', 'scoreA', 'placarA', 'contratosA', 'golsA'], 0);
+  const rightScore = pickNumber(jogo, ['rightScore', 'scoreB', 'placarB', 'contratosB', 'golsB'], 0);
   const criterion = pickString(jogo, ['criterion', 'criterio', 'criterioAtual'], leftScore === rightScore ? 'Valor produzido' : 'Contratos');
   const advancing = pickString(jogo, ['advancing', 'classificando', 'classificandoAgora', 'vencedorAtual'], leftScore >= rightScore ? leftName : rightName);
   const distance = pickString(jogo, ['distance', 'distancia'], leftScore === rightScore ? 'Empate' : `${Math.abs(leftScore - rightScore) > 0 ? '+' : ''}${Math.abs(leftScore - rightScore)} contratos`);
 
   return {
-    id: pickString(jogo, ['id', 'fase', 'codigo'], `SF${index + 1}`),
+    id: pickString(jogo, ['id', 'fase', 'codigo'], `JOGO${index + 1}`),
     status: leftScore === rightScore ? 'DESEMPATE POR VALOR' : 'VANTAGEM POR CONTRATOS',
     statusType: leftScore === rightScore ? 'value' : 'contracts',
     left: team(leftName, index === 0 ? 'green' : 'gold', index === 0 ? 'mountain' : 'landmark'),
@@ -233,6 +246,5 @@ function isRecord(value: unknown): value is AnyRecord {
 }
 
 function currentHourLabel() {
-  const date = new Date();
-  return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date).replace(':', 'h');
+  return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(':', 'h');
 }
