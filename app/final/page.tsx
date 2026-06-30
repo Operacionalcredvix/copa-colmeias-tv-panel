@@ -121,9 +121,7 @@ export default function FinalPage() {
   }, [finalMatch]);
 
   const finalDate = finalHasPortoSeguro ? '01/07' : '30/06';
-  const scheduleNote = finalHasPortoSeguro
-    ? 'Final ajustada por feriado municipal em Porto Seguro'
-    : 'Data prevista da grande final';
+  const scheduleNote = 'Final ao vivo';
 
   const hasRankingSecondPage = (data?.rankingTop.length ?? 0) > 5;
 
@@ -234,6 +232,7 @@ export default function FinalPage() {
 
   return (
     <main className={`final-screen sport-edition ${activeGoal ? 'goal-active' : ''}`}>
+      <style jsx global>{polishStyles}</style>
       <div className="background-grid" />
       <div className="stadium-lights" />
       <Header updatedAt={data.updatedAt} />
@@ -301,6 +300,7 @@ export default function FinalPage() {
 function LoadingScreen({ text }: { text: string }) {
   return (
     <main className="final-screen loading-screen sport-edition">
+      <style jsx global>{polishStyles}</style>
       <div className="background-grid" />
       <div className="loader-card">
         <div className="brand-mark mini"><HoneyIcon /></div>
@@ -476,3 +476,115 @@ function abbreviateStoreName(value: string) {
 function normalizeText(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
+
+const polishStyles = `
+  .final-screen .final-main {
+    grid-template-rows: 166px 1fr !important;
+  }
+
+  .final-screen .final-hero {
+    padding-top: 16px !important;
+    padding-bottom: 14px !important;
+  }
+
+  .final-screen .final-hero::before {
+    bottom: 8px !important;
+    opacity: .35 !important;
+  }
+
+  .final-screen .final-hero h2 {
+    font-size: clamp(72px, 7vw, 118px) !important;
+    line-height: .78 !important;
+  }
+
+  .final-screen .final-hero p {
+    position: relative !important;
+    z-index: 2 !important;
+    margin-top: 7px !important;
+    padding-bottom: 2px !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    line-height: 1.12 !important;
+  }
+
+  .final-screen .final-aside {
+    grid-template-rows: 148px 1fr !important;
+  }
+
+  .final-screen .title-panel {
+    justify-content: flex-start !important;
+    padding: 16px 18px 12px !important;
+    overflow: hidden !important;
+  }
+
+  .final-screen .title-panel span {
+    display: block !important;
+    font-size: 11px !important;
+    line-height: 1 !important;
+    margin-bottom: 7px !important;
+  }
+
+  .final-screen .title-panel strong {
+    display: block !important;
+    margin: 0 !important;
+    color: #fff !important;
+    font-size: 29px !important;
+    line-height: .92 !important;
+    font-weight: 900 !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-height: 54px !important;
+  }
+
+  .final-screen .title-tags {
+    margin-top: 10px !important;
+    gap: 7px !important;
+  }
+
+  .final-screen .title-tags b {
+    height: 22px !important;
+    padding: 0 9px !important;
+    font-size: 9px !important;
+    line-height: 1 !important;
+  }
+
+  @media (max-height: 760px) {
+    .final-screen .final-main {
+      grid-template-rows: 136px 1fr !important;
+    }
+
+    .final-screen .final-hero {
+      padding-top: 13px !important;
+      padding-bottom: 11px !important;
+    }
+
+    .final-screen .final-hero h2 {
+      font-size: clamp(58px, 6.05vw, 88px) !important;
+    }
+
+    .final-screen .final-hero p {
+      margin-top: 5px !important;
+      font-size: 13px !important;
+    }
+
+    .final-screen .final-aside {
+      grid-template-rows: 128px 1fr !important;
+    }
+
+    .final-screen .title-panel {
+      padding: 13px 16px 10px !important;
+    }
+
+    .final-screen .title-panel strong {
+      font-size: 25px !important;
+      max-height: 47px !important;
+    }
+
+    .final-screen .title-tags b {
+      height: 20px !important;
+      font-size: 8.5px !important;
+    }
+  }
+`;
