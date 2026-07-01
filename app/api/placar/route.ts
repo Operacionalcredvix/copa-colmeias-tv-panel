@@ -116,10 +116,10 @@ function errorPayload(warning: string, startedAt: number): PanelPayload {
   return {
     ok: false,
     updatedAt: currentHourLabel(),
-    headlineDate: '30/06',
+    headlineDate: '01/07',
     source: 'error',
     warning,
-    matches: [],
+    matches: [thirdPlaceFallbackMatch()],
     rankingTop: [],
     ticker: [],
     diagnostics: {
@@ -142,14 +142,21 @@ function withDiagnostics(payload: PanelPayload, cache: 'fresh' | 'stale' | 'erro
 
 function normalizePayload(raw: unknown): PanelPayload {
   if (isRecord(raw) && Array.isArray(raw.matches) && Array.isArray(raw.rankingTop)) {
+    const rawMatches = (raw.matches as unknown[]).filter(isRecord);
+    const matches = rawMatches.slice(0, 2).map((match, index) => normalizeMatch(match, index));
+    const allRanking = [
+      ...(raw.rankingTop as unknown[]).filter(isRecord).map(normalizeRankingRow),
+      ...(Array.isArray(raw.ticker) ? (raw.ticker as unknown[]).filter(isRecord).map(normalizeRankingRow) : [])
+    ];
+
     return {
       ok: Boolean(raw.ok ?? true),
       updatedAt: String(raw.updatedAt ?? currentHourLabel()),
-      headlineDate: String(raw.headlineDate ?? '30/06'),
+      headlineDate: '01/07',
       source: 'apps-script',
-      matches: raw.matches as Match[],
-      rankingTop: raw.rankingTop as RankingRow[],
-      ticker: Array.isArray(raw.ticker) ? (raw.ticker as RankingRow[]) : []
+      matches: matches.length > 0 ? matches : [thirdPlaceFallbackMatch()],
+      rankingTop: allRanking.slice(0, 10),
+      ticker: allRanking.slice(10, 20)
     };
   }
 
@@ -167,34 +174,56 @@ function normalizePayload(raw: unknown): PanelPayload {
   return {
     ok: matches.length > 0 || rankingTop.length > 0,
     updatedAt: String(raw.updatedAt ?? raw.atualizadoAs ?? raw.ultimaAtualizacao ?? currentHourLabel()),
-    headlineDate: String(raw.headlineDate ?? raw.dataFinal ?? '30/06'),
+    headlineDate: '01/07',
     source: 'normalized',
-    matches,
+    matches: matches.length > 0 ? matches : [thirdPlaceFallbackMatch()],
     rankingTop,
     ticker
   };
 }
 
 function normalizeMatch(jogo: AnyRecord, index: number): Match {
-  const leftName = pickString(jogo, ['leftName', 'timeA', 'lojaA', 'mandante', 'casa', 'equipeA', 'nomeLojaA'], 'Loja A');
-  const rightName = pickString(jogo, ['rightName', 'timeB', 'lojaB', 'visitante', 'fora', 'equipeB', 'nomeLojaB'], 'Loja B');
+  const leftName = pickString(jogo, ['leftName', 'timeA', 'lojaA', 'mandante', 'casa', 'equipeA', 'nomeLojaA'], 'Cuiabá Prainha');
+  const rightName = pickString(jogo, ['rightName', 'timeB', 'lojaB', 'visitante', 'fora', 'equipeB', 'nomeLojaB'], 'Porto Seguro Centro');
   const leftScore = pickNumber(jogo, ['leftScore', 'scoreA', 'placarA', 'contratosA', 'golsA'], 0);
   const rightScore = pickNumber(jogo, ['rightScore', 'scoreB', 'placarB', 'contratosB', 'golsB'], 0);
-  const criterion = pickString(jogo, ['criterion', 'criterio', 'criterioAtual'], leftScore === rightScore ? 'Valor produzido' : 'Contratos');
-  const advancing = pickString(jogo, ['advancing', 'classificando', 'classificandoAgora', 'vencedorAtual'], leftScore >= rightScore ? leftName : rightName);
-  const distance = pickString(jogo, ['distance', 'distancia'], leftScore === rightScore ? 'Empate' : `${Math.abs(leftScore - rightScore) > 0 ? '+' : ''}${Math.abs(leftScore - rightScore)} contratos`);
+  const tied = leftScore === rightScore;
+  const hasProduction = leftScore > 0 || rightScore > 0;
+  const rawAdvancing = pickString(jogo, ['advancing', 'classificando', 'classificandoAgora', 'vencedorAtual'], '');
+  const advancing = rawAdvancing && rawAdvancing !== 'PENDENTE MANUAL' && rawAdvancing !== 'EM ANDAMENTO'
+    ? rawAdvancing
+    : tied
+      ? 'EM ANDAMENTO'
+      : leftScore > rightScore
+        ? leftName
+        : rightName;
 
   return {
-    id: pickString(jogo, ['id', 'fase', 'codigo'], `JOGO${index + 1}`),
-    status: leftScore === rightScore ? 'DESEMPATE POR VALOR' : 'VANTAGEM POR CONTRATOS',
-    statusType: leftScore === rightScore ? 'value' : 'contracts',
-    left: team(leftName, index === 0 ? 'green' : 'gold', index === 0 ? 'mountain' : 'landmark'),
-    right: team(rightName, 'blue', index === 0 ? 'city' : 'bridge'),
+    id: '3º LUGAR',
+    status: tied ? (hasProduction ? 'DESEMPATE POR VALOR' : 'AGUARDANDO CONTRATOS') : 'VANTAGEM POR CONTRATOS',
+    statusType: tied ? 'value' : 'contracts',
+    left: team(leftName, 'gold', 'city'),
+    right: team(rightName, 'blue', 'bridge'),
     leftScore,
     rightScore,
     advancing,
-    criterion,
-    distance
+    criterion: tied ? 'Contratos empatados; desempate por valor' : 'Contratos',
+    distance: tied ? (hasProduction ? 'Empate em contratos' : 'Aguardando produção') : `${Math.abs(leftScore - rightScore)} contrato${Math.abs(leftScore - rightScore) === 1 ? '' : 's'}`
+  };
+}
+
+function thirdPlaceFallbackMatch(): Match {
+  return {
+    id: '3º LUGAR',
+    status: 'AGUARDANDO CONTRATOS',
+    statusType: 'value',
+    left: team('Cuiabá Prainha', 'gold', 'city'),
+    right: team('Porto Seguro Centro', 'blue', 'bridge'),
+    leftScore: 0,
+    rightScore: 0,
+    advancing: 'EM ANDAMENTO',
+    criterion: 'Contratos; empate por valor',
+    distance: 'Aguardando produção'
   };
 }
 
