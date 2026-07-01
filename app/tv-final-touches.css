@@ -34,7 +34,8 @@
 }
 
 .ranking-title h3 {
-  margin: 2px 0 4px !important;
+  margin: 2px 0 3px !important;
+  font-size: 25px !important;
 }
 
 .ranking-title p {
@@ -46,21 +47,53 @@
 .ranking-title p strong {
   display: block !important;
   color: #ffc633 !important;
-  font-size: 14px !important;
-  line-height: 1.05 !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
   font-weight: 900 !important;
   letter-spacing: 0.04em !important;
   text-transform: uppercase !important;
 }
 
+.ranking-title p strong:nth-of-type(2) {
+  display: none !important;
+}
+
 .ranking-title p::after {
-  content: 'ranking por VALOR produzido';
+  content: 'ranking por valor produzido';
   display: block;
   margin-top: 2px;
   color: rgba(255,255,255,0.62);
-  font-size: 11px;
-  line-height: 1.08;
+  font-size: 10px;
+  line-height: 1;
   font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ranking-list-v3 {
+  grid-auto-rows: 39px !important;
+  gap: 5px !important;
+  padding-top: 1px !important;
+}
+
+.ranking-item-v3 {
+  height: 39px !important;
+  min-height: 39px !important;
+  grid-template-columns: 30px minmax(0, 1fr) auto !important;
+  gap: 8px !important;
+  padding: 0 8px 0 6px !important;
+}
+
+.ranking-item-v3 span {
+  height: 26px !important;
+  font-size: 13px !important;
+}
+
+.ranking-item-v3 strong {
+  font-size: 11px !important;
+}
+
+.ranking-item-v3 em {
+  font-size: 11px !important;
 }
 
 .match-ribbon {
@@ -90,7 +123,22 @@
 }
 
 .status-card-v3 {
-  margin-bottom: 18px !important;
+  min-height: 50px !important;
+  margin-bottom: 12px !important;
+  padding: 9px 12px !important;
+}
+
+.screen-icon {
+  width: 34px !important;
+  height: 27px !important;
+}
+
+.status-card-v3 strong {
+  font-size: 16px !important;
+}
+
+.status-card-v3 small {
+  font-size: 11px !important;
 }
 
 .ticker-v3 {
@@ -109,6 +157,16 @@
 }
 
 @media (max-width: 1366px) {
+  .ranking-list-v3 {
+    grid-auto-rows: 38px !important;
+    gap: 5px !important;
+  }
+
+  .ranking-item-v3 {
+    height: 38px !important;
+    min-height: 38px !important;
+  }
+
   .ticker-v3 {
     height: 66px !important;
     grid-template-columns: 150px minmax(0, 1fr) 195px !important;
