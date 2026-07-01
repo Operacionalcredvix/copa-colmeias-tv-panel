@@ -1,5 +1,5 @@
 const PAINEL_TV_SPREADSHEET_ID = '1vE3Ba1D9A5PyjazGuhJ4pk48GPdE4pEjpoQ2GVHiTsw';
-const PAINEL_TV_DATA_FINAL = '30/06';
+const PAINEL_TV_DATA_FINAL = '01/07';
 
 function doGet(e) {
   try {
@@ -90,6 +90,9 @@ function painelTvLerJogos_(sh) {
         row[1] &&
         row[3] &&
         (
+          fase.includes('TERCEIRO') ||
+          fase.includes('3º LUGAR') ||
+          fase.includes('3° LUGAR') ||
           fase.includes('SEMIFINAL') ||
           fase.includes('SF') ||
           fase.includes('FINAL')
@@ -121,28 +124,30 @@ function painelTvNormalizarJogo_(row, index) {
 
   const empate = contratosA === contratosB;
   const criterioValor = criterioOriginal.includes('VALOR');
+  const terceiroLugar = painelTvEhTerceiroLugar_(fase);
 
   const statusType = empate || criterioValor ? 'value' : 'contracts';
+  const semProducao = contratosA === 0 && contratosB === 0;
 
   return {
     id: painelTvExtrairIdJogo_(fase, index),
-    status: statusType === 'value' ? 'DESEMPATE POR VALOR' : 'VANTAGEM POR CONTRATOS',
+    status: semProducao ? 'AGUARDANDO CONTRATOS' : (statusType === 'value' ? 'DESEMPATE POR VALOR' : 'VANTAGEM POR CONTRATOS'),
     statusType: statusType,
     left: painelTvTeam_(
       lojaA,
-      index === 0 ? 'green' : 'gold',
-      index === 0 ? 'mountain' : 'landmark'
+      terceiroLugar ? 'gold' : (index === 0 ? 'green' : 'gold'),
+      terceiroLugar ? 'city' : (index === 0 ? 'mountain' : 'landmark')
     ),
     right: painelTvTeam_(
       lojaB,
       'blue',
-      index === 0 ? 'city' : 'bridge'
+      terceiroLugar ? 'bridge' : (index === 0 ? 'city' : 'bridge')
     ),
     leftScore: contratosA,
     rightScore: contratosB,
-    advancing: vencedor || (contratosA >= contratosB ? lojaA : lojaB),
+    advancing: semProducao ? 'EM ANDAMENTO' : (vencedor || (contratosA >= contratosB ? lojaA : lojaB)),
     criterion: statusType === 'value' ? 'Valor produzido' : 'Contratos',
-    distance: empate ? 'Empate' : painelTvDistancia_(contratosA, contratosB)
+    distance: semProducao ? 'Aguardando produção' : (empate ? 'Empate' : painelTvDistancia_(contratosA, contratosB))
   };
 }
 
@@ -198,6 +203,10 @@ function painelTvParsePlacar_(txt) {
 function painelTvExtrairIdJogo_(fase, index) {
   const txt = String(fase || '').toUpperCase();
 
+  if (painelTvEhTerceiroLugar_(txt)) {
+    return '3º LUGAR';
+  }
+
   if (txt.includes('SF1')) {
     return 'SF1';
   }
@@ -211,6 +220,14 @@ function painelTvExtrairIdJogo_(fase, index) {
   }
 
   return 'SF' + (index + 1);
+}
+
+function painelTvEhTerceiroLugar_(fase) {
+  const txt = String(fase || '').toUpperCase();
+
+  return txt.includes('TERCEIRO') ||
+    txt.includes('3º LUGAR') ||
+    txt.includes('3° LUGAR');
 }
 
 function painelTvDistancia_(a, b) {
