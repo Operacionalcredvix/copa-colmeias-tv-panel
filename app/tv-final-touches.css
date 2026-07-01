@@ -1,0 +1,116 @@
+/* Ajustes finais do painel de terceiro lugar: acabamento visual e respiro em TV. */
+
+.tv-screen {
+  grid-template-rows: 84px minmax(0, 1fr) 68px !important;
+}
+
+.live-card-v3 strong {
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+.live-card-v3 strong::before {
+  content: 'Base oficial ao vivo';
+  display: block;
+  color: #fff;
+  font-size: 15px;
+  line-height: 1.02;
+  font-weight: 900;
+}
+
+.live-card-v3 small {
+  font-size: 0 !important;
+  line-height: 0 !important;
+  margin-top: 3px !important;
+}
+
+.live-card-v3 small::before {
+  content: 'atualização automática';
+  display: block;
+  color: #ffc633;
+  font-size: 14px;
+  line-height: 1.02;
+  font-weight: 900;
+}
+
+.ranking-title h3 {
+  margin: 2px 0 4px !important;
+}
+
+.ranking-title p {
+  margin: 0 !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+.ranking-title p strong {
+  display: block !important;
+  color: #ffc633 !important;
+  font-size: 14px !important;
+  line-height: 1.05 !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+
+.ranking-title p::after {
+  content: 'ranking por VALOR produzido';
+  display: block;
+  margin-top: 2px;
+  color: rgba(255,255,255,0.62);
+  font-size: 11px;
+  line-height: 1.08;
+  font-weight: 700;
+}
+
+.match-ribbon {
+  width: 138px !important;
+  height: 42px !important;
+  padding-right: 10px !important;
+  font-size: 26px !important;
+  clip-path: polygon(0 0, 100% 0, 84% 100%, 0 100%) !important;
+}
+
+.match-pulse {
+  min-width: 196px !important;
+  padding: 7px 12px !important;
+  border-color: rgba(255, 196, 42, 0.22) !important;
+  background: linear-gradient(90deg, rgba(255, 196, 42, 0.10), rgba(60, 148, 234, 0.08)) !important;
+  box-shadow: inset 0 0 16px rgba(255,255,255,0.02) !important;
+}
+
+.match-pulse span {
+  font-size: 12px !important;
+  letter-spacing: 0.07em !important;
+}
+
+.match-pulse small {
+  color: rgba(255,255,255,0.62) !important;
+  font-size: 10px !important;
+}
+
+.status-card-v3 {
+  margin-bottom: 18px !important;
+}
+
+.ticker-v3 {
+  height: 68px !important;
+  padding: 4px 20px 2px !important;
+  align-items: center !important;
+}
+
+.ticker-label-v3 {
+  height: 40px !important;
+}
+
+.ticker-track-v3 div {
+  font-size: 12px !important;
+  line-height: 1 !important;
+}
+
+@media (max-width: 1366px) {
+  .ticker-v3 {
+    height: 66px !important;
+    grid-template-columns: 150px minmax(0, 1fr) 195px !important;
+  }
+}
