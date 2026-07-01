@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import './final-overrides.css';
+import './tv-final-touches.css';
 
 export const metadata: Metadata = {
   title: 'Copa das Colmeias - Painel TV',
