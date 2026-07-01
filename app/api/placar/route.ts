@@ -197,6 +197,7 @@ function normalizeMatch(jogo: AnyRecord, index: number): Match {
       : leftScore > rightScore
         ? leftName
         : rightName;
+  const diff = Math.abs(leftScore - rightScore);
 
   return {
     id: '3º LUGAR',
@@ -207,8 +208,8 @@ function normalizeMatch(jogo: AnyRecord, index: number): Match {
     leftScore,
     rightScore,
     advancing,
-    criterion: tied ? 'Contratos empatados; desempate por valor' : 'Contratos',
-    distance: tied ? (hasProduction ? 'Empate em contratos' : 'Aguardando produção') : `${Math.abs(leftScore - rightScore)} contrato${Math.abs(leftScore - rightScore) === 1 ? '' : 's'}`
+    criterion: tied ? 'Empate por valor' : 'Contratos',
+    distance: tied ? (hasProduction ? 'Empate' : 'Aguardando') : `${diff} contrato${diff === 1 ? '' : 's'}`
   };
 }
 
@@ -222,8 +223,8 @@ function thirdPlaceFallbackMatch(): Match {
     leftScore: 0,
     rightScore: 0,
     advancing: 'EM ANDAMENTO',
-    criterion: 'Contratos; empate por valor',
-    distance: 'Aguardando produção'
+    criterion: 'Empate por valor',
+    distance: 'Aguardando'
   };
 }
 
