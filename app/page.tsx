@@ -50,7 +50,7 @@ type GoalEvent = {
 };
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
-const STORAGE_KEY = 'copa-colmeias-last-scores-v1';
+const STORAGE_KEY = 'copa-colmeias-third-place-scores-v1';
 const RANKING_ROTATE_MS = 7000;
 
 export default function Home() {
@@ -88,7 +88,12 @@ export default function Home() {
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() === 'g') {
-        showGoal({ teamName: 'Porto Seguro Centro', score: '3 X 1', matchId: 'demo' });
+        const match = data?.matches[0];
+        showGoal({
+          teamName: match?.left.name ?? 'Cuiabá Prainha',
+          score: match ? `${match.leftScore} X ${match.rightScore}` : '1 X 0',
+          matchId: match?.id ?? 'demo'
+        });
       }
     };
 
@@ -99,7 +104,7 @@ export default function Home() {
       window.removeEventListener('keydown', handleKey);
       if (goalTimer.current) clearTimeout(goalTimer.current);
     };
-  }, [loadData]);
+  }, [loadData, data]);
 
   const hasRankingSecondPage = (data?.rankingTop.length ?? 0) > 5;
 
@@ -113,9 +118,7 @@ export default function Home() {
       setRankingPage((prev) => (prev === 0 ? 1 : 0));
     }, RANKING_ROTATE_MS);
 
-    return () => {
-      window.clearInterval(interval);
-    };
+    return () => window.clearInterval(interval);
   }, [hasRankingSecondPage]);
 
   const evaluateGoal = (payload: PanelPayload) => {
@@ -129,19 +132,11 @@ export default function Home() {
       if (!before) return;
 
       if (match.leftScore > before.left) {
-        goals.push({
-          teamName: match.left.name,
-          score: `${match.leftScore} X ${match.rightScore}`,
-          matchId: match.id
-        });
+        goals.push({ teamName: match.left.name, score: `${match.leftScore} X ${match.rightScore}`, matchId: match.id });
       }
 
       if (match.rightScore > before.right) {
-        goals.push({
-          teamName: match.right.name,
-          score: `${match.leftScore} X ${match.rightScore}`,
-          matchId: match.id
-        });
+        goals.push({ teamName: match.right.name, score: `${match.leftScore} X ${match.rightScore}`, matchId: match.id });
       }
     });
 
@@ -165,9 +160,7 @@ export default function Home() {
 
   const tickerText = useMemo(() => {
     if (!data) return '';
-    return data.ticker
-      .map((row) => `${row.position}º ${row.name}${row.value ? `  ${row.value}` : ''}`)
-      .join('   •   ');
+    return data.ticker.map((row) => `${row.position}º ${row.name}${row.value ? `  ${row.value}` : ''}`).join('   •   ');
   }, [data]);
 
   const visibleRanking = useMemo(() => {
@@ -176,9 +169,7 @@ export default function Home() {
     return data.rankingTop.slice(start, start + 5);
   }, [data, rankingPage]);
 
-  const rankingWindowLabel = useMemo(() => {
-    return rankingPage === 0 ? '1º ao 5º' : '6º ao 10º';
-  }, [rankingPage]);
+  const rankingWindowLabel = useMemo(() => (rankingPage === 0 ? '1º ao 5º' : '6º ao 10º'), [rankingPage]);
 
   if (!data && isLoading) {
     return (
@@ -186,7 +177,7 @@ export default function Home() {
         <div className="loader-card">
           <div className="brand-mark mini"><HoneyIcon /></div>
           <h1>COPA DAS COLMEIAS</h1>
-          <p>Carregando placar ao vivo...</p>
+          <p>Carregando disputa de terceiro lugar...</p>
         </div>
       </main>
     );
@@ -197,43 +188,15 @@ export default function Home() {
   return (
     <main className={`screen ${activeGoal ? 'goal-active' : ''}`}>
       <style jsx global>{`
-        .ranking-list-animated {
-          animation: rankingSwapIn 760ms cubic-bezier(0.18, 0.72, 0.18, 1) both;
-        }
-
-        .ranking-list-animated .ranking-item {
-          animation: rankingItemIn 620ms cubic-bezier(0.18, 0.72, 0.18, 1) both;
-        }
-
+        .ranking-list-animated { animation: rankingSwapIn 760ms cubic-bezier(0.18, 0.72, 0.18, 1) both; }
+        .ranking-list-animated .ranking-item { animation: rankingItemIn 620ms cubic-bezier(0.18, 0.72, 0.18, 1) both; }
         .ranking-list-animated .ranking-item:nth-child(1) { animation-delay: 0ms; }
         .ranking-list-animated .ranking-item:nth-child(2) { animation-delay: 55ms; }
         .ranking-list-animated .ranking-item:nth-child(3) { animation-delay: 110ms; }
         .ranking-list-animated .ranking-item:nth-child(4) { animation-delay: 165ms; }
         .ranking-list-animated .ranking-item:nth-child(5) { animation-delay: 220ms; }
-
-        @keyframes rankingSwapIn {
-          from {
-            opacity: 0;
-            transform: translateY(10px) scale(0.985);
-            filter: blur(5px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-            filter: blur(0);
-          }
-        }
-
-        @keyframes rankingItemIn {
-          from {
-            opacity: 0;
-            transform: translateX(14px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
+        @keyframes rankingSwapIn { from { opacity: 0; transform: translateY(10px) scale(0.985); filter: blur(5px); } to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } }
+        @keyframes rankingItemIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
       `}</style>
 
       <div className="background-grid" />
@@ -243,16 +206,14 @@ export default function Home() {
         <div className="main-column">
           <div className="headline-card">
             <div>
-              <h2>VALE VAGA NA GRANDE FINAL</h2>
-              <p>Placar dos confrontos = contratos&nbsp;&nbsp;|&nbsp;&nbsp;Ranking geral = valor produzido</p>
+              <h2>DISPUTA DE TERCEIRO LUGAR</h2>
+              <p>Cuiabá Prainha x Porto Seguro Centro&nbsp;&nbsp;|&nbsp;&nbsp;cada contrato decide o pódio</p>
             </div>
             <span className="date-pill">{payload.headlineDate}</span>
           </div>
 
           <div className="matches-stack">
-            {payload.matches.slice(0, 2).map((match) => (
-              <MatchCard key={match.id} match={match} />
-            ))}
+            {payload.matches.slice(0, 1).map((match) => <MatchCard key={match.id} match={match} />)}
           </div>
         </div>
 
@@ -262,29 +223,25 @@ export default function Home() {
             <div className="signal-icon">◉</div>
             <div>
               <strong>Transmissão interna</strong>
-              <small>cada contrato muda o jogo.</small>
+              <small>contratos atualizados pela base oficial.</small>
             </div>
             <LivePill compact />
           </div>
 
           <div className="ranking-heading">
             <h3>TOP 10 GERAL</h3>
-            <p>
-              <strong>{rankingWindowLabel}</strong> • Ranking por <strong>VALOR</strong> produzido, não por contratos.
-            </p>
+            <p><strong>{rankingWindowLabel}</strong> • Ranking por <strong>VALOR</strong> produzido.</p>
           </div>
 
           <div key={rankingPage} className="ranking-list ranking-list-animated">
-            {visibleRanking.map((row) => (
-              <RankingItem key={`${row.position}-${row.name}`} row={row} />
-            ))}
+            {visibleRanking.map((row) => <RankingItem key={`${row.position}-${row.name}`} row={row} />)}
           </div>
 
           <div className="tv-status-card">
             <div className="monitor-icon"><span /></div>
             <div>
               <strong>PAINEL DA LOJA</strong>
-              <small>exibição interna em tempo real</small>
+              <small>terceiro lugar em tempo real</small>
             </div>
           </div>
         </aside>
@@ -314,7 +271,7 @@ function Header({ updatedAt }: { updatedAt: string }) {
         <div className="brand-mark"><HoneyIcon /></div>
         <div>
           <h1>COPA DAS COLMEIAS</h1>
-          <p>SEMIFINAL AO VIVO • DISPUTA POR CONTRATOS</p>
+          <p>TERCEIRO LUGAR AO VIVO • DISPUTA POR CONTRATOS</p>
         </div>
       </div>
       <LivePill />
@@ -327,27 +284,21 @@ function Header({ updatedAt }: { updatedAt: string }) {
 }
 
 function MatchCard({ match }: { match: Match }) {
-  const advancing = normalizeText(match.advancing);
-  const leftAdvancing = advancing.includes(normalizeText(match.left.name).split(' ')[0]);
-  const rightAdvancing = advancing.includes(normalizeText(match.right.name).split(' ')[0]);
+  const winner = normalizeText(match.advancing);
+  const leftWinning = winner.includes(normalizeText(match.left.name).split(' ')[0]);
+  const rightWinning = winner.includes(normalizeText(match.right.name).split(' ')[0]);
 
   return (
     <article className={`match-card ${match.statusType}`}>
       <div className="match-tab">{match.id}</div>
       <div className="status-pill">{match.status}</div>
-
       <div className="score-row">
-        <TeamBlock team={match.left} align="left" advancing={leftAdvancing} />
-        <div className="score-core">
-          <span>{match.leftScore}</span>
-          <em>x</em>
-          <span>{match.rightScore}</span>
-        </div>
-        <TeamBlock team={match.right} align="right" advancing={rightAdvancing} />
+        <TeamBlock team={match.left} align="left" advancing={leftWinning} />
+        <div className="score-core"><span>{match.leftScore}</span><em>x</em><span>{match.rightScore}</span></div>
+        <TeamBlock team={match.right} align="right" advancing={rightWinning} />
       </div>
-
       <div className="match-meta">
-        <MetaItem label="Classificando agora" value={match.advancing} highlight />
+        <MetaItem label="Vencendo agora" value={match.advancing} highlight />
         <MetaItem label="Critério atual" value={match.criterion} />
         <MetaItem label="Distância" value={match.distance} highlight={match.distance.includes('+')} />
       </div>
@@ -359,10 +310,7 @@ function TeamBlock({ team, align, advancing }: { team: Team; align: 'left' | 'ri
   return (
     <div className={`team-block ${align} ${advancing ? 'advancing' : ''}`}>
       {align === 'left' && <TeamBadge team={team} />}
-      <div className="team-name">
-        <strong>{team.primary}</strong>
-        <span className={`tone-${team.tone}`}>{team.secondary}</span>
-      </div>
+      <div className="team-name"><strong>{team.primary}</strong><span className={`tone-${team.tone}`}>{team.secondary}</span></div>
       {align === 'right' && <TeamBadge team={team} />}
     </div>
   );
@@ -381,22 +329,11 @@ function TeamBadge({ team }: { team: Team }) {
 
 function RankingItem({ row }: { row: RankingRow }) {
   const tone = row.position <= 2 ? 'green' : row.position <= 4 ? 'orange' : 'blue';
-  return (
-    <div className="ranking-item">
-      <span className={`rank-badge ${tone}`}>{row.position}</span>
-      <strong>{row.name}</strong>
-      <em>{row.value}</em>
-    </div>
-  );
+  return <div className="ranking-item"><span className={`rank-badge ${tone}`}>{row.position}</span><strong>{row.name}</strong><em>{row.value}</em></div>;
 }
 
 function MetaItem({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className="meta-item">
-      <span>{label}</span>
-      <strong className={highlight ? 'highlight' : ''}>{value}</strong>
-    </div>
-  );
+  return <div className="meta-item"><span>{label}</span><strong className={highlight ? 'highlight' : ''}>{value}</strong></div>;
 }
 
 function LivePill({ compact = false }: { compact?: boolean }) {
@@ -412,18 +349,9 @@ function GoalOverlay({ goal }: { goal: GoalEvent }) {
         <div className="goal-card-edge top" />
         <LivePill compact />
         <h2>GOL!</h2>
-        <div className="goal-team-line">
-          <span className="goal-bee">🐝</span>
-          <strong>{goal.teamName} marca!</strong>
-        </div>
-        <div className="goal-score">
-          <span>PLACAR:</span>
-          <strong>{goal.score}</strong>
-        </div>
-        <div className="goal-status">
-          <em><HoneyIcon /></em>
-          <span>SEMIFINAL AO VIVO</span>
-        </div>
+        <div className="goal-team-line"><span className="goal-bee">🐝</span><strong>{goal.teamName} marca!</strong></div>
+        <div className="goal-score"><span>PLACAR:</span><strong>{goal.score}</strong></div>
+        <div className="goal-status"><em><HoneyIcon /></em><span>TERCEIRO LUGAR AO VIVO</span></div>
         <p>cada contrato <strong>muda</strong> o jogo.</p>
       </div>
     </div>
@@ -431,13 +359,7 @@ function GoalOverlay({ goal }: { goal: GoalEvent }) {
 }
 
 function HoneyIcon() {
-  return (
-    <svg viewBox="0 0 64 64" aria-hidden="true">
-      <path d="M32 5 55 18v28L32 59 9 46V18L32 5Z" />
-      <path d="M22 25 32 19l10 6v12l-10 6-10-6V25Z" />
-      <path d="M13 18 32 7l19 11M13 46l19 11 19-11" />
-    </svg>
-  );
+  return <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 5 55 18v28L32 59 9 46V18L32 5Z" /><path d="M22 25 32 19l10 6v12l-10 6-10-6V25Z" /><path d="M13 18 32 7l19 11M13 46l19 11 19-11" /></svg>;
 }
 
 function normalizeText(value: string) {
