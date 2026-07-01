@@ -50,7 +50,7 @@ type GoalEvent = {
 };
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
-const STORAGE_KEY = 'copa-colmeias-third-place-broadcast-v1';
+const STORAGE_KEY = 'copa-colmeias-third-place-broadcast-v2';
 const RANKING_ROTATE_MS = 7000;
 
 export default function Home() {
@@ -66,7 +66,7 @@ export default function Home() {
   const showGoal = useCallback((goal: GoalEvent) => {
     setActiveGoal(goal);
     if (goalTimer.current) clearTimeout(goalTimer.current);
-    goalTimer.current = setTimeout(() => setActiveGoal(null), 6800);
+    goalTimer.current = setTimeout(() => setActiveGoal(null), 7800);
   }, []);
 
   const evaluateGoal = useCallback((payload: PanelPayload) => {
@@ -93,7 +93,7 @@ export default function Home() {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextScores));
     } catch {
-      // Sem efeito critico para TV.
+      // Sem efeito crítico para TV.
     }
 
     const lastGoal = goals[goals.length - 1];
@@ -175,6 +175,7 @@ export default function Home() {
   const rankingWindowLabel = rankingPage === 0 ? '1º ao 5º' : '6º ao 10º';
   const payload = data;
   const match = payload?.matches[0];
+  const hotMatchId = activeGoal?.matchId ?? '';
 
   if (!payload && isLoading) {
     return (
@@ -219,7 +220,7 @@ export default function Home() {
             <strong className="date-badge">{payload?.headlineDate ?? '01/07'}</strong>
           </div>
 
-          {match ? <MatchBoard match={match} /> : <EmptyMatch />}
+          {match ? <MatchBoard match={match} isHot={hotMatchId === match.id} /> : <EmptyMatch />}
         </div>
 
         <aside className="side-panel">
@@ -253,7 +254,7 @@ export default function Home() {
         </aside>
       </section>
 
-      <footer className="broadcast-ticker">
+      <footer className={`broadcast-ticker ${activeGoal ? 'ticker-goal' : ''}`}>
         <div className="ticker-title"><HoneyIcon /><strong>11º AO 20º</strong></div>
         <LivePill compact />
         <div className="ticker-track-v2"><div>{tickerText}</div></div>
@@ -265,24 +266,25 @@ export default function Home() {
   );
 }
 
-function MatchBoard({ match }: { match: Match }) {
+function MatchBoard({ match, isHot }: { match: Match; isHot: boolean }) {
   const winner = normalizeText(match.advancing);
   const leftWinning = winner.includes(normalizeText(match.left.name).split(' ')[0]);
   const rightWinning = winner.includes(normalizeText(match.right.name).split(' ')[0]);
 
   return (
-    <article className={`match-board ${match.statusType}`}>
+    <article className={`match-board ${match.statusType} ${isHot ? 'contract-event' : ''}`}>
       <div className="match-ribbon">{match.id}</div>
       <div className="match-status">{match.status}</div>
+      <div className="contract-alert"><span>CONTRATO NO PLACAR</span></div>
 
       <div className="score-zone">
-        <TeamPanel team={match.left} align="left" active={leftWinning} />
-        <div className="scorebox">
-          <span>{match.leftScore}</span>
+        <TeamPanel team={match.left} align="left" active={leftWinning || (isHot && winner.includes(normalizeText(match.left.name).split(' ')[0]))} />
+        <div className="scorebox" aria-label={`Placar ${match.leftScore} a ${match.rightScore}`}>
+          <ScoreDigit value={match.leftScore} side="left" />
           <em>x</em>
-          <span>{match.rightScore}</span>
+          <ScoreDigit value={match.rightScore} side="right" />
         </div>
-        <TeamPanel team={match.right} align="right" active={rightWinning} />
+        <TeamPanel team={match.right} align="right" active={rightWinning || (isHot && winner.includes(normalizeText(match.right.name).split(' ')[0]))} />
       </div>
 
       <div className="meta-row-v2">
@@ -301,7 +303,7 @@ function EmptyMatch() {
       <div className="match-status">AGUARDANDO CONTRATOS</div>
       <div className="score-zone">
         <TeamPanel team={{ name: 'Cuiabá Prainha', primary: 'CUIABÁ', secondary: 'PRAINHA', tone: 'gold', badge: 'city' }} align="left" active={false} />
-        <div className="scorebox"><span>0</span><em>x</em><span>0</span></div>
+        <div className="scorebox"><ScoreDigit value={0} side="left" /><em>x</em><ScoreDigit value={0} side="right" /></div>
         <TeamPanel team={{ name: 'Porto Seguro Centro', primary: 'PORTO', secondary: 'SEGURO CENTRO', tone: 'blue', badge: 'bridge' }} align="right" active={false} />
       </div>
       <div className="meta-row-v2">
@@ -313,28 +315,70 @@ function EmptyMatch() {
   );
 }
 
+function ScoreDigit({ value, side }: { value: number; side: 'left' | 'right' }) {
+  return <span key={`${side}-${value}`} className={`score-digit ${side}`}>{value}</span>;
+}
+
 function TeamPanel({ team, align, active }: { team: Team; align: 'left' | 'right'; active: boolean }) {
   return (
     <div className={`team-panel ${align} ${active ? 'active' : ''}`}>
-      {align === 'left' && <TeamBadge team={team} />}
+      {align === 'left' && <StoreCrest team={team} />}
       <div className="team-copy">
         <strong>{team.primary}</strong>
         <span className={`tone-${team.tone}`}>{team.secondary}</span>
       </div>
-      {align === 'right' && <TeamBadge team={team} />}
+      {align === 'right' && <StoreCrest team={team} />}
     </div>
   );
 }
 
-function TeamBadge({ team }: { team: Team }) {
+function StoreCrest({ team }: { team: Team }) {
+  const identity = getStoreIdentity(team.name);
+
   return (
-    <div className={`team-badge-v2 tone-${team.tone}`} aria-label={team.name}>
-      {team.badge === 'mountain' && <svg viewBox="0 0 64 64"><path d="M8 45l16-20 10 12 8-8 14 16H8z" /><path d="M8 50c12-5 23 5 34 0 6-3 10-2 14 0" /></svg>}
-      {team.badge === 'city' && <svg viewBox="0 0 64 64"><path d="M12 46h40" /><path d="M17 46V30h8v16M29 46V20h8v26M41 46V27h8v19" /><path d="M8 52c10-4 20 4 30 0 8-3 12-2 18 0" /></svg>}
-      {team.badge === 'landmark' && <svg viewBox="0 0 64 64"><path d="M12 46h40" /><path d="M22 46V27l10-9 10 9v19" /><path d="M28 46V34h8v12" /><path d="M10 52c9-4 19 4 29 0 7-3 12-2 15 0" /></svg>}
-      {team.badge === 'bridge' && <svg viewBox="0 0 64 64"><path d="M10 45h44" /><path d="M16 45c8-22 24-22 32 0" /><path d="M22 45V30M32 45V25M42 45V30" /><path d="M9 52c10-4 20 4 30 0 7-3 12-2 16 0" /></svg>}
+    <div className={`store-crest ${identity.slug} tone-${team.tone}`} aria-label={`Brasão ${team.name}`}>
+      <div className="crest-shine" />
+      <div className="crest-topline">CREDVIX</div>
+      <div className="crest-symbol">
+        {identity.slug === 'cuiaba-prainha' ? <CuiabaCrestIcon /> : <PortoSeguroCrestIcon />}
+      </div>
+      <strong>{identity.initials}</strong>
+      <span>{identity.label}</span>
     </div>
   );
+}
+
+function CuiabaCrestIcon() {
+  return (
+    <svg viewBox="0 0 80 80" aria-hidden="true">
+      <path className="crest-line" d="M18 54h44" />
+      <path className="crest-line" d="M24 54V39h7v15M36 54V28h8v26M49 54V35h7v19" />
+      <path className="crest-accent" d="M17 60c10-4 19 4 30 0 7-3 12-2 17 0" />
+      <path className="crest-honey" d="M40 12l9 5v10l-9 5-9-5V17l9-5z" />
+    </svg>
+  );
+}
+
+function PortoSeguroCrestIcon() {
+  return (
+    <svg viewBox="0 0 80 80" aria-hidden="true">
+      <path className="crest-line" d="M18 52h44" />
+      <path className="crest-line" d="M23 52c7-20 27-20 34 0" />
+      <path className="crest-line" d="M30 52V39M40 52V34M50 52V39" />
+      <path className="crest-accent" d="M18 60c10-4 20 4 30 0 7-3 12-2 16 0" />
+      <path className="crest-honey" d="M40 14l8 5v9l-8 5-8-5v-9l8-5z" />
+    </svg>
+  );
+}
+
+function getStoreIdentity(name: string) {
+  const normalized = normalizeText(name);
+
+  if (normalized.includes('porto')) {
+    return { slug: 'porto-seguro', initials: 'PS', label: 'PORTO' };
+  }
+
+  return { slug: 'cuiaba-prainha', initials: 'CP', label: 'CUIABÁ' };
 }
 
 function RankingItem({ row }: { row: RankingRow }) {
@@ -364,12 +408,17 @@ function LivePill({ compact = false }: { compact?: boolean }) {
 function GoalOverlay({ goal }: { goal: GoalEvent }) {
   return (
     <div className="goal-layer-v2" role="status" aria-live="assertive">
+      <div className="goal-burst" />
+      <div className="goal-particles">
+        {Array.from({ length: 18 }).map((_, index) => <span key={index} />)}
+      </div>
       <div className="goal-card-v2">
         <LivePill compact />
+        <div className="goal-kicker">ATUALIZAÇÃO DE PRODUÇÃO</div>
         <h2>GOL!</h2>
-        <strong>{goal.teamName} marca!</strong>
-        <div><span>PLACAR</span><em>{goal.score}</em></div>
-        <p>cada contrato muda o jogo.</p>
+        <strong>{goal.teamName} marca no placar</strong>
+        <div className="goal-scoreline"><span>PLACAR AGORA</span><em>{goal.score}</em></div>
+        <p>contrato confirmado na base oficial da Copa das Colmeias.</p>
       </div>
     </div>
   );
@@ -461,7 +510,7 @@ function BroadcastStyle() {
       .honey-mark path:nth-child(2) { stroke: #ffffff; opacity: 0.85; }
       .honey-mark path:nth-child(3) { opacity: 0.5; }
 
-      .broadcast-topbar h1, .hero-strip h2, .side-title, .ranking-head h3, .team-copy strong, .match-ribbon, .match-status, .ticker-title strong, .goal-card-v2 h2, .status-card strong {
+      .broadcast-topbar h1, .hero-strip h2, .side-title, .ranking-head h3, .team-copy strong, .match-ribbon, .match-status, .ticker-title strong, .goal-card-v2 h2, .status-card strong, .crest-topline, .store-crest strong, .contract-alert span {
         font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
         text-transform: uppercase;
         letter-spacing: 0.025em;
@@ -498,31 +547,44 @@ function BroadcastStyle() {
       .match-board { position: relative; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) 86px; overflow: hidden; border: 1px solid rgba(255,255,255,0.12); border-left: 3px solid rgba(255, 183, 31, 0.9); background: radial-gradient(circle at 50% 50%, rgba(12, 52, 104, 0.12), transparent 52%), linear-gradient(180deg, rgba(4, 20, 38, 0.98), rgba(3, 13, 24, 0.98)); box-shadow: 0 20px 60px rgba(0,0,0,0.32), inset 0 0 80px rgba(255,255,255,0.015), inset 0 0 90px rgba(30, 120, 220, 0.03); clip-path: polygon(1.5% 0, 100% 0, 100% 90%, 98% 100%, 0 100%, 0 6%); }
       .match-board.contracts { border-left-color: rgba(76, 212, 91, 0.8); }
       .match-board::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(255,255,255,0.03), transparent 22% 78%, rgba(255,255,255,0.025)), linear-gradient(120deg, transparent 0 70%, rgba(255, 170, 34, 0.05) 70.2% 70.6%, transparent 70.8% 100%); }
+      .match-board.contract-event { animation: contractBoardFlash 1.8s ease-out both; }
+      .match-board.contract-event::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 45%, rgba(255, 203, 61, 0.24), transparent 32%); animation: contractHalo 1.8s ease-out both; z-index: 2; }
 
       .match-ribbon { position: absolute; z-index: 3; top: 0; left: 0; width: 116px; height: 42px; display: grid; place-items: center; background: linear-gradient(135deg, #ff9820, #ff6517); color: white; font-size: 28px; font-weight: 900; clip-path: polygon(0 0, 100% 0, 78% 100%, 0 100%); text-shadow: 0 2px rgba(0,0,0,0.25); box-shadow: 0 6px 16px rgba(255, 120, 20, 0.20); }
       .match-status { position: absolute; z-index: 3; top: 18px; right: 0; min-width: 210px; height: 38px; display: grid; place-items: center; padding: 0 18px; font-size: 15px; font-weight: 900; background: linear-gradient(90deg, #ffcd37, #ff9b1e); color: #1f1200; clip-path: polygon(8% 0, 100% 0, 95% 100%, 0 100%); box-shadow: 0 8px 22px rgba(0,0,0,0.18); }
       .contracts .match-status { background: linear-gradient(90deg, #1fbe56, #11763d); color: white; }
+      .contract-alert { position: absolute; z-index: 5; left: 50%; top: 18px; transform: translateX(-50%) translateY(-130%); opacity: 0; pointer-events: none; }
+      .contract-alert span { display: block; padding: 8px 18px; border-radius: 999px; background: linear-gradient(90deg, #ffcf3d, #ff8d1e); color: #160d00; font-size: 18px; font-weight: 900; box-shadow: 0 12px 30px rgba(255, 160, 31, 0.26); }
+      .contract-event .contract-alert { animation: contractAlert 2.2s ease-out both; }
 
       .score-zone { position: relative; z-index: 1; min-height: 0; padding: 48px 30px 14px; display: grid; grid-template-columns: minmax(0, 1fr) 188px minmax(0, 1fr); gap: 16px; align-items: center; }
       .team-panel { min-width: 0; display: flex; align-items: center; gap: 12px; }
       .team-panel.right { justify-content: flex-end; text-align: right; }
       .team-panel.active .team-copy strong { color: #fff8d8; text-shadow: 0 0 18px rgba(255, 203, 61, 0.20), 0 5px 18px rgba(0,0,0,0.45); }
+      .team-panel.active .store-crest { animation: crestActivePulse 2.2s ease-in-out infinite; }
+      .contract-event .team-panel.active .store-crest { animation: crestGoalPop 1.8s ease-out both; }
       .team-copy { min-width: 0; }
       .team-copy strong { display: block; color: white; font-size: clamp(32px, 2.9vw, 44px); line-height: 0.88; font-weight: 900; font-style: italic; white-space: nowrap; text-shadow: 0 5px 18px rgba(0,0,0,0.45); }
       .team-copy span { display: block; margin-top: 6px; font-family: 'Barlow Condensed', Arial, sans-serif; font-size: clamp(20px, 1.55vw, 25px); line-height: 0.94; font-weight: 900; font-style: italic; letter-spacing: 0.04em; white-space: nowrap; }
       .tone-green { color: #58c94f; } .tone-blue { color: #4da6ff; } .tone-gold { color: #ffc433; } .tone-orange { color: #ff8d1e; }
 
-      .team-badge-v2 { flex: 0 0 auto; width: 66px; height: 66px; display: grid; place-items: center; clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); border: 2px solid currentColor; background: linear-gradient(145deg, rgba(255,255,255,0.2), rgba(255,255,255,0.04)); box-shadow: 0 10px 24px rgba(0,0,0,0.35), 0 0 16px rgba(255,255,255,0.05), inset 0 0 0 4px rgba(0,0,0,0.22), inset 0 0 24px rgba(255,255,255,0.07); }
-      .team-badge-v2 svg { width: 42px; height: 42px; }
-      .team-badge-v2 path { fill: none; stroke: white; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 3px 3px rgba(0,0,0,0.3)); }
-      .team-badge-v2.tone-blue { background: linear-gradient(145deg, rgba(60, 148, 234, 0.82), rgba(10, 45, 86, 0.9)); }
-      .team-badge-v2.tone-gold { background: linear-gradient(145deg, rgba(255, 194, 42, 0.9), rgba(84, 49, 5, 0.94)); }
-      .team-badge-v2.tone-green { background: linear-gradient(145deg, rgba(67, 191, 75, 0.85), rgba(12, 52, 38, 0.9)); }
-      .team-badge-v2.tone-orange { background: linear-gradient(145deg, rgba(255, 141, 30, 0.86), rgba(86, 39, 6, 0.92)); }
+      .store-crest { position: relative; flex: 0 0 auto; width: 78px; height: 86px; display: grid; grid-template-rows: 14px 1fr 20px 12px; place-items: center; color: #ffbf32; background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02)), linear-gradient(145deg, rgba(255, 194, 42, 0.18), rgba(7, 18, 32, 0.94)); border: 2px solid currentColor; clip-path: polygon(50% 0, 92% 13%, 100% 55%, 78% 100%, 22% 100%, 0 55%, 8% 13%); box-shadow: 0 10px 26px rgba(0,0,0,0.36), 0 0 18px rgba(255, 194, 42, 0.10), inset 0 0 0 5px rgba(0,0,0,0.20), inset 0 0 32px rgba(255,255,255,0.06); overflow: hidden; }
+      .store-crest.porto-seguro { color: #4da6ff; background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02)), linear-gradient(145deg, rgba(60,148,234,0.24), rgba(7,18,32,0.94)); box-shadow: 0 10px 26px rgba(0,0,0,0.36), 0 0 20px rgba(77,166,255,0.14), inset 0 0 0 5px rgba(0,0,0,0.20), inset 0 0 32px rgba(255,255,255,0.06); }
+      .crest-shine { position: absolute; inset: -40% auto auto -35%; width: 70%; height: 150%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent); transform: rotate(28deg); animation: crestSweep 5.6s ease-in-out infinite; }
+      .crest-topline { position: relative; z-index: 1; margin-top: 7px; color: rgba(255,255,255,0.70); font-size: 8px; font-weight: 900; letter-spacing: 0.08em; }
+      .crest-symbol { position: relative; z-index: 1; width: 42px; height: 34px; display: grid; place-items: center; }
+      .crest-symbol svg { width: 42px; height: 42px; }
+      .crest-line { fill: none; stroke: rgba(255,255,255,0.92); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .crest-accent { fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .crest-honey { fill: rgba(255,255,255,0.08); stroke: currentColor; stroke-width: 3.5; stroke-linejoin: round; }
+      .store-crest strong { position: relative; z-index: 1; color: #fff; font-size: 23px; font-weight: 900; line-height: 0.8; text-shadow: 0 3px 10px rgba(0,0,0,0.40); }
+      .store-crest span { position: relative; z-index: 1; margin-bottom: 8px; color: currentColor; font-family: 'Barlow Condensed', Arial, sans-serif; font-size: 10px; font-weight: 900; letter-spacing: 0.12em; }
 
-      .scorebox { position: relative; width: 188px; min-width: 188px; height: 108px; display: flex; align-items: center; justify-content: center; gap: 16px; color: white; font-family: 'Barlow Condensed', Arial, sans-serif; font-size: clamp(78px, 6.8vw, 100px); line-height: 0.78; font-weight: 900; background: linear-gradient(180deg, rgba(7, 13, 22, 0.98), rgba(14, 23, 37, 0.98)); clip-path: polygon(10% 0, 90% 0, 100% 50%, 90% 100%, 10% 100%, 0 50%); border: 1px solid rgba(255,255,255,0.10); box-shadow: inset 0 0 40px rgba(255,255,255,0.03), 0 10px 28px rgba(0,0,0,0.25); text-shadow: 0 6px 0 rgba(255,255,255,0.06), 0 12px 26px rgba(0,0,0,0.5); }
+      .scorebox { position: relative; width: 188px; min-width: 188px; height: 108px; display: flex; align-items: center; justify-content: center; gap: 16px; color: white; font-family: 'Barlow Condensed', Arial, sans-serif; font-size: clamp(78px, 6.8vw, 100px); line-height: 0.78; font-weight: 900; background: linear-gradient(180deg, rgba(7, 13, 22, 0.98), rgba(14, 23, 37, 0.98)); clip-path: polygon(10% 0, 90% 0, 100% 50%, 90% 100%, 10% 100%, 0 50%); border: 1px solid rgba(255,255,255,0.10); box-shadow: inset 0 0 40px rgba(255,255,255,0.03), 0 10px 28px rgba(0,0,0,0.25); text-shadow: 0 6px 0 rgba(255,255,255,0.06), 0 12px 26px rgba(0,0,0,0.5); animation: scoreboxBreath 5s ease-in-out infinite; }
+      .contract-event .scorebox { animation: scoreGoalFlash 1.8s ease-out both, scoreboxBreath 5s ease-in-out 1.8s infinite; }
       .scorebox::after { content: ''; position: absolute; left: 22px; right: 22px; top: 0; bottom: 0; pointer-events: none; background: linear-gradient(180deg, rgba(255, 196, 42, 0.7), transparent 6%, transparent 94%, rgba(255, 196, 42, 0.7)); opacity: 0.8; clip-path: inherit; }
-      .scorebox em { font-size: 0.47em; font-style: normal; margin-top: 2px; opacity: 0.95; }
+      .scorebox em { position: relative; z-index: 1; font-size: 0.47em; font-style: normal; margin-top: 2px; opacity: 0.95; }
+      .score-digit { position: relative; z-index: 1; display: inline-block; animation: scoreDigitSettle 520ms cubic-bezier(.18,.88,.28,1.25) both; }
 
       .meta-row-v2 { position: relative; z-index: 1; height: 86px; min-height: 86px; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: stretch; border-top: 1px solid rgba(255,255,255,0.12); background: linear-gradient(180deg, rgba(15, 18, 22, 0.36), rgba(9, 15, 21, 0.56)); }
       .meta-item-v2 { min-width: 0; height: 100%; padding: 0 14px; display: flex; flex-direction: column; justify-content: center; overflow: hidden; border-right: 1px solid rgba(255,255,255,0.12); }
@@ -560,6 +622,7 @@ function BroadcastStyle() {
       .status-card small { display: block; margin-top: 4px; color: rgba(255,255,255,0.72); font-size: 12px; line-height: 1.05; font-style: italic; }
 
       .broadcast-ticker { min-height: 0; height: 56px; display: grid; grid-template-columns: 152px 92px minmax(0, 1fr) 190px; align-items: center; gap: 10px; padding: 0 18px; overflow: hidden; border-top: 1px solid rgba(255,255,255,0.08); background: linear-gradient(180deg, rgba(4, 12, 22, 0.98), rgba(2, 8, 16, 0.98)); box-shadow: inset 0 1px rgba(255, 177, 29, 0.05), 0 -14px 40px rgba(0,0,0,0.24); }
+      .ticker-goal { animation: tickerGoalFlash 1.8s ease-out both; }
       .ticker-title { height: 40px; padding: 0 13px; display: flex; align-items: center; gap: 8px; border-left: 4px solid #ff8d1e; border-right: 4px solid #ff8d1e; background: linear-gradient(135deg, rgba(12, 25, 40, 0.98), rgba(8, 16, 27, 0.94)); clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%); }
       .ticker-title svg { width: 20px; height: 20px; flex: 0 0 auto; }
       .ticker-title path { fill: none; stroke: #ffb62c; stroke-width: 4; stroke-linejoin: round; }
@@ -571,28 +634,67 @@ function BroadcastStyle() {
       .footer-brand span { margin: 0 8px; color: #ffc633; }
 
       .goal-active .broadcast-topbar, .goal-active .broadcast-stage, .goal-active .broadcast-ticker { filter: brightness(0.46) blur(1.2px); }
-      .goal-layer-v2 { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: radial-gradient(circle at 50% 50%, rgba(255, 184, 30, 0.13), rgba(0,0,0,0.72) 62%, rgba(0,0,0,0.84)); animation: overlayIn 360ms ease-out both; }
-      .goal-card-v2 { width: min(880px, 72vw); min-height: 420px; padding: 58px 64px 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 1px solid rgba(255, 194, 42, 0.72); background: radial-gradient(circle at 50% 5%, rgba(255, 194, 42, 0.17), transparent 28%), linear-gradient(135deg, rgba(4,16,28,0.98), rgba(5,13,22,0.98)); clip-path: polygon(11% 0, 91% 0, 100% 18%, 94% 100%, 7% 100%, 0 79%, 5% 15%); box-shadow: 0 0 90px rgba(255, 178, 30, 0.26), 0 34px 120px rgba(0,0,0,0.64); }
-      .goal-card-v2 h2 { margin: 20px 0 8px; color: #ffc633; font-size: 132px; font-weight: 900; font-style: italic; line-height: 0.78; text-shadow: 0 0 28px rgba(255, 198, 51, 0.22); }
+      .goal-layer-v2 { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: radial-gradient(circle at 50% 50%, rgba(255, 184, 30, 0.18), rgba(0,0,0,0.72) 62%, rgba(0,0,0,0.84)); animation: overlayIn 360ms ease-out both; overflow: hidden; }
+      .goal-burst { position: absolute; width: 620px; height: 620px; border-radius: 50%; background: repeating-conic-gradient(from 0deg, rgba(255, 205, 55, 0.18) 0 5deg, transparent 5deg 13deg); filter: blur(0.2px); opacity: 0.82; animation: goalBurstSpin 7.8s linear infinite, goalBurstIn 700ms ease-out both; }
+      .goal-particles { position: absolute; inset: 0; pointer-events: none; }
+      .goal-particles span { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; border: 2px solid rgba(255, 205, 55, 0.88); clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); animation: particleFly 1400ms ease-out both; }
+      .goal-particles span:nth-child(1) { --x: -360px; --y: -180px; animation-delay: 30ms; }
+      .goal-particles span:nth-child(2) { --x: 330px; --y: -150px; animation-delay: 70ms; }
+      .goal-particles span:nth-child(3) { --x: -290px; --y: 160px; animation-delay: 110ms; }
+      .goal-particles span:nth-child(4) { --x: 310px; --y: 180px; animation-delay: 150ms; }
+      .goal-particles span:nth-child(5) { --x: -120px; --y: -260px; animation-delay: 190ms; }
+      .goal-particles span:nth-child(6) { --x: 140px; --y: -270px; animation-delay: 230ms; }
+      .goal-particles span:nth-child(7) { --x: -150px; --y: 260px; animation-delay: 270ms; }
+      .goal-particles span:nth-child(8) { --x: 180px; --y: 255px; animation-delay: 310ms; }
+      .goal-particles span:nth-child(9) { --x: -430px; --y: 20px; animation-delay: 350ms; }
+      .goal-particles span:nth-child(10) { --x: 430px; --y: -10px; animation-delay: 390ms; }
+      .goal-particles span:nth-child(11) { --x: -40px; --y: -330px; animation-delay: 430ms; }
+      .goal-particles span:nth-child(12) { --x: 40px; --y: 330px; animation-delay: 470ms; }
+      .goal-particles span:nth-child(13) { --x: -510px; --y: -90px; animation-delay: 510ms; }
+      .goal-particles span:nth-child(14) { --x: 500px; --y: 100px; animation-delay: 550ms; }
+      .goal-particles span:nth-child(15) { --x: -250px; --y: -250px; animation-delay: 590ms; }
+      .goal-particles span:nth-child(16) { --x: 260px; --y: 250px; animation-delay: 630ms; }
+      .goal-particles span:nth-child(17) { --x: -25px; --y: 0px; animation-delay: 40ms; }
+      .goal-particles span:nth-child(18) { --x: 25px; --y: 0px; animation-delay: 80ms; }
+
+      .goal-card-v2 { position: relative; z-index: 2; width: min(920px, 74vw); min-height: 450px; padding: 58px 64px 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 1px solid rgba(255, 194, 42, 0.72); background: radial-gradient(circle at 50% 5%, rgba(255, 194, 42, 0.17), transparent 28%), linear-gradient(135deg, rgba(4,16,28,0.98), rgba(5,13,22,0.98)); clip-path: polygon(11% 0, 91% 0, 100% 18%, 94% 100%, 7% 100%, 0 79%, 5% 15%); box-shadow: 0 0 90px rgba(255, 178, 30, 0.26), 0 34px 120px rgba(0,0,0,0.64); animation: goalCardPop 740ms cubic-bezier(.16,.98,.29,1.08) both; }
+      .goal-kicker { margin-top: 16px; color: #ffcf3d; font-size: 14px; font-weight: 900; letter-spacing: 0.16em; }
+      .goal-card-v2 h2 { margin: 14px 0 8px; color: #ffc633; font-size: 136px; font-weight: 900; font-style: italic; line-height: 0.78; text-shadow: 0 0 28px rgba(255, 198, 51, 0.28); }
       .goal-card-v2 > strong { color: #fff; font-size: 34px; }
-      .goal-card-v2 div span { display: block; margin-top: 24px; color: rgba(255,255,255,0.64); font-size: 16px; font-weight: 900; letter-spacing: 0.12em; }
-      .goal-card-v2 div em { display: block; color: #fff; font-family: 'Barlow Condensed', Arial, sans-serif; font-size: 72px; font-style: italic; font-weight: 900; line-height: 0.9; }
+      .goal-scoreline span { display: block; margin-top: 24px; color: rgba(255,255,255,0.64); font-size: 16px; font-weight: 900; letter-spacing: 0.12em; }
+      .goal-scoreline em { display: block; color: #fff; font-family: 'Barlow Condensed', Arial, sans-serif; font-size: 76px; font-style: italic; font-weight: 900; line-height: 0.9; }
       .goal-card-v2 p { margin: 18px 0 0; color: rgba(255,255,255,0.72); }
 
       @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
       @keyframes livePulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.72); opacity: 0.65; } }
       @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes scoreboxBreath { 0%, 100% { transform: scale(1); box-shadow: inset 0 0 40px rgba(255,255,255,0.03), 0 10px 28px rgba(0,0,0,0.25); } 50% { transform: scale(1.012); box-shadow: inset 0 0 44px rgba(255,255,255,0.05), 0 12px 34px rgba(0,0,0,0.28); } }
+      @keyframes scoreDigitSettle { from { transform: translateY(-13px) scale(1.16); opacity: 0.35; filter: blur(3px); } to { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); } }
+      @keyframes scoreGoalFlash { 0% { transform: scale(1); box-shadow: 0 0 0 rgba(255,203,61,0); } 18% { transform: scale(1.12); box-shadow: 0 0 54px rgba(255,203,61,0.38), inset 0 0 50px rgba(255,203,61,0.12); } 100% { transform: scale(1); box-shadow: inset 0 0 40px rgba(255,255,255,0.03), 0 10px 28px rgba(0,0,0,0.25); } }
+      @keyframes contractBoardFlash { 0% { border-color: rgba(255,203,61,0.9); } 100% { border-color: rgba(255,255,255,0.12); } }
+      @keyframes contractHalo { 0% { opacity: 0; transform: scale(0.9); } 20% { opacity: 1; } 100% { opacity: 0; transform: scale(1.22); } }
+      @keyframes contractAlert { 0% { opacity: 0; transform: translateX(-50%) translateY(-130%) scale(0.88); } 16% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } 78% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } 100% { opacity: 0; transform: translateX(-50%) translateY(-24px) scale(0.96); } }
+      @keyframes crestActivePulse { 0%, 100% { transform: scale(1); filter: brightness(1); } 50% { transform: scale(1.035); filter: brightness(1.14); } }
+      @keyframes crestGoalPop { 0% { transform: scale(1); } 18% { transform: scale(1.18) rotate(-2deg); filter: brightness(1.35); } 100% { transform: scale(1); filter: brightness(1); } }
+      @keyframes crestSweep { 0%, 72% { transform: translateX(-80%) rotate(28deg); } 100% { transform: translateX(240%) rotate(28deg); } }
+      @keyframes tickerGoalFlash { 0% { box-shadow: inset 0 1px rgba(255,177,29,0.05), 0 -14px 40px rgba(0,0,0,0.24); } 20% { box-shadow: inset 0 0 28px rgba(255,203,61,0.12), 0 -14px 48px rgba(255,203,61,0.12); } 100% { box-shadow: inset 0 1px rgba(255,177,29,0.05), 0 -14px 40px rgba(0,0,0,0.24); } }
+      @keyframes goalBurstSpin { to { transform: rotate(360deg); } }
+      @keyframes goalBurstIn { from { opacity: 0; transform: scale(0.4); } to { opacity: 0.82; transform: scale(1); } }
+      @keyframes particleFly { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(0deg); } 18% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1.05) rotate(230deg); } }
+      @keyframes goalCardPop { from { opacity: 0; transform: translateY(18px) scale(0.92); filter: blur(5px); } to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } }
 
       @media (max-width: 1366px) {
         .broadcast-stage { grid-template-columns: minmax(0, 1fr) 332px; gap: 14px; }
         .hero-strip { height: 96px; padding-left: 28px; padding-right: 28px; }
         .field-column { grid-template-rows: 96px minmax(0, 1fr); }
         .hero-strip h2 { font-size: 48px; }
-        .score-zone { grid-template-columns: minmax(0, 1fr) 176px minmax(0, 1fr); padding-left: 26px; padding-right: 26px; }
+        .score-zone { grid-template-columns: minmax(0, 1fr) 176px minmax(0, 1fr); padding-left: 24px; padding-right: 24px; }
         .scorebox { width: 176px; min-width: 176px; height: 102px; font-size: 84px; }
         .team-copy strong { font-size: 38px; }
         .team-copy span { font-size: 21px; }
-        .team-badge-v2 { width: 60px; height: 60px; }
+        .store-crest { width: 72px; height: 80px; }
+        .store-crest strong { font-size: 21px; }
+        .crest-symbol svg { width: 38px; height: 38px; }
         .ranking-item-v2 strong { font-size: 11.5px; }
         .broadcast-ticker { grid-template-columns: 145px 88px minmax(0, 1fr) 180px; }
       }
