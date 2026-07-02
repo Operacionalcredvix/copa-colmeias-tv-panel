@@ -1,0 +1,3 @@
+'use client';
+import {useEffect,useState} from 'react';
+export default function RadarClient(){const [d,setD]=useState<any>(null);useEffect(()=>{async function l(){const f=(window as any)['fetch'];const r=await f('/api/producao');setD(await r.json())}l();const i=setInterval(l,15000);return()=>clearInterval(i)},[]);if(!d)return <main style={{background:'#020812',color:'#fff',height:'100vh'}}>Carregando Radar...</main>;return <main style={{background:'#020812',color:'#fff',height:'100vh',fontFamily:'Arial',padding:20}}><h1>RADAR DE PRODUÇÃO</h1><h2>{d.summary?.productionTodayFormatted}</h2><pre>{JSON.stringify(d.summary,null,2)}</pre></main>}
