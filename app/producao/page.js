@@ -1,1 +1,1 @@
-export default function Page(){return 'Radar';}
+export { default } from './RadarClient';
