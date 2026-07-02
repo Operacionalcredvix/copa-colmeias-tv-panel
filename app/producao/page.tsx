@@ -3,573 +3,237 @@
 import { useEffect, useMemo, useState } from 'react';
 
 type Tone = 'positive' | 'negative' | 'neutral';
-
-type MetricDelta = {
-  label: string;
-  tone: Tone;
-};
+type AlertLevel = 'good' | 'attention' | 'critical' | 'info';
 
 type Summary = {
-  contracts: number;
-  production: string;
-  averageTicket: string;
+  contractsToday: number;
+  productionTodayFormatted: string;
+  averageTicketFormatted: string;
   activeStores: number;
+  totalStores: number;
   zeroStores: number;
-  projection: string;
+  projectionFormatted: string;
   goalPercent: number;
 };
 
 type StoreRow = {
   position: number;
   name: string;
+  regional: string;
   contracts: number;
-  value: string;
+  production: number;
+  productionFormatted: string;
+  averageTicketFormatted: string;
 };
 
-type MoverRow = {
+type ConsultantRow = {
+  position: number;
   name: string;
-  contractsDelta: number;
-  valueDelta: string;
+  store: string;
+  regional: string;
+  contracts: number;
+  productionFormatted: string;
 };
 
 type RegionalRow = {
   name: string;
   contracts: number;
-  production: string;
-  averageTicket: string;
+  production: number;
+  productionFormatted: string;
+  averageTicketFormatted: string;
   activeStores: number;
+  totalStores: number;
   zeroStores: number;
 };
 
+type HourlyRow = {
+  hour: string;
+  accumulatedProduction: number;
+  accumulatedProductionFormatted: string;
+};
+
 type AlertRow = {
-  level: 'good' | 'attention' | 'critical' | 'info';
+  level: AlertLevel;
   title: string;
   description: string;
 };
 
-type AiReading = {
-  generatedAt: string;
-  text: string;
-  status: 'OK' | 'CACHE' | 'FALLBACK' | 'ERROR';
-};
-
-type ProductionPayload = {
+type RadarPayload = {
   ok: boolean;
   source: string;
+  version: string;
   updatedAt: string;
-  dateLabel: string;
+  date: string;
   summary: Summary;
-  deltas: Record<keyof Summary, MetricDelta | undefined>;
-  rhythm: {
-    label: string;
-    description: string;
-    percent: number;
-    tone: Tone;
+  comparisons: {
+    yesterday: { productionDeltaPercent?: number; productionFormatted?: string };
+    sevenDayAverage: { productionDeltaPercent?: number; productionAverageFormatted?: string };
   };
-  aiReading: AiReading;
+  rhythm: { label: string; tone: Tone; percent: number; description: string };
+  hourlyEvolution: HourlyRow[];
   topStores: StoreRow[];
-  movers: MoverRow[];
-  zeroStoresList: string[];
+  topConsultants: ConsultantRow[];
   regionalPerformance: RegionalRow[];
   alerts: AlertRow[];
+  aiReading: { generatedAt: string; text: string; status: string };
   ticker: string[];
-  diagnostics?: {
-    cache?: string;
-    responseMs?: number;
-  };
+  diagnostics?: { cache?: string; responseMs?: number; warning?: string };
+  warning?: string;
 };
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 15000);
-const SCREEN_ROTATE_MS = 14000;
+const SCREEN_MS = 15000;
 
 export default function ProducaoPage() {
-  const [data, setData] = useState<ProductionPayload | null>(null);
+  const [data, setData] = useState<RadarPayload | null>(null);
+  const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => {
+    let alive = true;
+    async function load() {
       try {
         const response = await fetch('/api/producao', { cache: 'no-store' });
-        const payload = (await response.json()) as ProductionPayload;
-        setData(payload);
+        const payload = (await response.json()) as RadarPayload;
+        if (alive) setData(payload);
       } catch (error) {
-        console.error('Erro ao carregar painel de producao', error);
+        console.error('Erro ao carregar Radar', error);
       } finally {
-        setIsLoading(false);
+        if (alive) setLoading(false);
       }
-    };
-
+    }
     load();
     const interval = window.setInterval(load, POLL_MS);
-    return () => window.clearInterval(interval);
+    return () => { alive = false; window.clearInterval(interval); };
   }, []);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      setScreen((prev) => (prev + 1) % 3);
-    }, SCREEN_ROTATE_MS);
-
+    const interval = window.setInterval(() => setScreen((prev) => (prev + 1) % 3), SCREEN_MS);
     return () => window.clearInterval(interval);
   }, []);
 
-  const tickerText = useMemo(() => {
+  const ticker = useMemo(() => {
     if (!data) return '';
-    return data.ticker.join('   •   ');
+    return (data.ticker.length ? data.ticker : [
+      `Contratos hoje: ${data.summary.contractsToday}`,
+      `Produção hoje: ${data.summary.productionTodayFormatted}`,
+      `Lojas zeradas: ${data.summary.zeroStores}`
+    ]).join('   •   ');
   }, [data]);
 
-  if (!data && isLoading) {
-    return (
-      <main className="prod-screen loading-screen">
-        <style jsx global>{styles}</style>
-        <LoaderCard text="Carregando dados em tempo real..." />
-      </main>
-    );
-  }
-
-  if (!data) {
-    return (
-      <main className="prod-screen loading-screen">
-        <style jsx global>{styles}</style>
-        <LoaderCard text="Não foi possível carregar os dados." />
-      </main>
-    );
-  }
+  if (!data && loading) return <Shell><Loader text="Carregando base oficial..." /></Shell>;
+  if (!data) return <Shell><Loader text="Não foi possível carregar os dados." /></Shell>;
 
   return (
-    <main className="prod-screen">
-      <style jsx global>{styles}</style>
-      <div className="prod-bg-grid" />
-      <Header updatedAt={data.updatedAt} screen={screen} />
-
-      <section key={screen} className="prod-stage prod-stage-animated">
-        {screen === 0 && <ExecutiveScreen data={data} />}
-        {screen === 1 && <StoresScreen data={data} />}
-        {screen === 2 && <RegionalsScreen data={data} />}
+    <Shell>
+      <Header data={data} screen={screen} />
+      <section className="stage">
+        {screen === 0 && <Overview data={data} />}
+        {screen === 1 && <Rankings data={data} />}
+        {screen === 2 && <Regionals data={data} />}
       </section>
-
-      <footer className="prod-footer">
-        <div className="prod-footer-logo"><HoneyIcon /><strong>CREDVIX</strong></div>
-        <div className="prod-ticker-track"><div className="prod-ticker-content">{tickerText}</div></div>
-        <div className="prod-footer-phrase">CADA CONTRATO CONTA</div>
-      </footer>
-    </main>
+      <footer><strong>CREDVIX</strong><div><span>{ticker}</span></div><em>RADAR MVP 3</em></footer>
+    </Shell>
   );
 }
 
-function LoaderCard({ text }: { text: string }) {
-  return (
-    <div className="prod-loader-card">
-      <div className="prod-logo-mark"><HoneyIcon /></div>
-      <h1>PAINEL DE PRODUÇÃO</h1>
-      <p>{text}</p>
-    </div>
-  );
+function Shell({ children }: { children: React.ReactNode }) {
+  return <main className="screen"><style jsx global>{css}</style><div className="bg" />{children}</main>;
 }
 
-function Header({ updatedAt, screen }: { updatedAt: string; screen: number }) {
-  const titles = ['VISÃO EXECUTIVA DO DIA', 'RANKING E PRESSÃO POR LOJA', 'REGIONAIS E ALERTAS'];
+function Loader({ text }: { text: string }) {
+  return <div className="loader"><Logo /><h1>RADAR DE PRODUÇÃO</h1><p>{text}</p></div>;
+}
 
+function Header({ data, screen }: { data: RadarPayload; screen: number }) {
+  const label = ['VISÃO GERAL', 'RANKINGS', 'REGIONAIS'][screen];
   return (
-    <header className="prod-topbar">
-      <div className="prod-screen-pill">TELA {screen + 1}</div>
-      <div className="prod-title-block">
-        <span>{titles[screen]}</span>
-        <h1>PAINEL DE PRODUÇÃO <em>CREDVIX</em></h1>
-      </div>
-      <div className="prod-update-box">
-        <span>ATUALIZADO</span>
-        <strong>{updatedAt}</strong>
-        <small><i /> ao vivo</small>
-      </div>
+    <header>
+      <div className="brand"><Logo /><div><b>RADAR DE PRODUÇÃO CREDVIX</b><small>PAINEL EM TEMPO REAL</small></div></div>
+      <div className="title"><span>{label}</span><h1>ACOMPANHAMENTO COMERCIAL</h1></div>
+      <div className="updated"><small>ATUALIZADO ÀS</small><b>{data.updatedAt}</b><span>{data.date}</span></div>
     </header>
   );
 }
 
-function ExecutiveScreen({ data }: { data: ProductionPayload }) {
+function Overview({ data }: { data: RadarPayload }) {
   const s = data.summary;
   const leader = data.topStores[0];
-  const firstAlert = data.alerts[0];
-  const totalStores = s.activeStores + s.zeroStores;
-  const cacheLabel = data.diagnostics?.cache ? `cache: ${data.diagnostics.cache}` : data.source === 'mock' ? 'dados de demonstração' : 'planilha operacional';
-
+  const topRegional = data.regionalPerformance[0];
   return (
-    <div className="prod-screen-grid executive-grid compact-executive-grid">
-      <div className="executive-left">
-        <div className="metric-grid compact-metric-grid">
-          <MetricCard label="Contratos hoje" value={String(s.contracts)} icon="CT" delta={data.deltas.contracts} featured />
-          <MetricCard label="Valor produzido" value={s.production} icon="R$" delta={data.deltas.production} featured />
-          <MetricCard label="Projeção do dia" value={s.projection} icon="PR" delta={data.deltas.projection} featured />
-          <MetricCard label="Ticket médio" value={s.averageTicket} icon="TM" delta={data.deltas.averageTicket} />
-          <MetricCard label="Lojas com produção" value={String(s.activeStores)} icon="ON" delta={data.deltas.activeStores} />
-          <MetricCard label="Lojas zeradas" value={String(s.zeroStores)} icon="0" delta={data.deltas.zeroStores} danger />
-        </div>
-
-        <div className="executive-strip">
-          <CompactInfo title="Líder do dia" value={leader ? leader.name : 'Sem produção'} detail={leader ? `${leader.contracts} ct • ${leader.value}` : 'aguardando produção'} tone="positive" />
-          <CompactInfo title="Cobertura" value={`${s.activeStores}/${totalStores || s.activeStores}`} detail={`${s.zeroStores} lojas zeradas`} tone={s.zeroStores > 0 ? 'negative' : 'positive'} />
-          <CompactInfo title="Fonte" value={data.source === 'mock' ? 'Demonstração' : 'Operacional'} detail={cacheLabel} tone="neutral" />
-        </div>
+    <div className="overview">
+      <div className="kpis">
+        <Kpi label="Contratos hoje" value={String(s.contractsToday)} detail={`${delta(data.comparisons.yesterday.productionDeltaPercent)} vs ontem`} />
+        <Kpi label="Produção hoje" value={s.productionTodayFormatted} detail={`${delta(data.comparisons.sevenDayAverage.productionDeltaPercent)} vs média 7d`} gold />
+        <Kpi label="Ticket médio" value={s.averageTicketFormatted} detail="valor médio por contrato" />
+        <Kpi label="Lojas com produção" value={`${s.activeStores}/${s.totalStores}`} detail={`${s.zeroStores} zeradas`} danger={s.zeroStores > 0} />
       </div>
-
-      <div className="insight-column compact-insight-column">
-        <div className="prod-panel rhythm-panel compact-rhythm-panel">
-          <div className="prod-panel-title"><span>↗</span> RITMO DO DIA</div>
-          <div className="rhythm-line">
-            <strong className={`rhythm-label ${data.rhythm.tone}`}>{data.rhythm.label}</strong>
-            <em>{data.rhythm.percent}%</em>
-          </div>
-          <p>{data.rhythm.description}</p>
-          <div className="rhythm-bar"><i style={{ width: `${Math.max(5, Math.min(100, data.rhythm.percent))}%` }} /></div>
-        </div>
-
-        <div className="prod-panel ai-panel compact-ai-panel">
-          <div className="prod-panel-title"><span>◎</span> LEITURA IA</div>
-          <p>{data.aiReading.text}</p>
-          <small>Gerada às {data.aiReading.generatedAt} • {data.aiReading.status}</small>
-        </div>
-
-        <div className="prod-panel executive-alert-panel">
-          <div className="prod-panel-title danger">PRIORIDADE AGORA</div>
-          <strong>{firstAlert ? firstAlert.title : 'Sem alerta crítico'}</strong>
-          <p>{firstAlert ? firstAlert.description : 'Operação sem alerta crítico no momento.'}</p>
-        </div>
+      <Panel title="Evolução por hora" className="chartPanel"><Hourly rows={data.hourlyEvolution} /></Panel>
+      <div className="side">
+        <Panel title="Ritmo do dia"><div className={`rhythm ${data.rhythm.tone}`}><b>{data.rhythm.label}</b><strong>{data.rhythm.percent}%</strong></div><div className="bar"><i style={{ width: `${Math.max(4, Math.min(100, data.rhythm.percent))}%` }} /></div><p>{data.rhythm.description}</p></Panel>
+        <Panel title="Leitura operacional"><p className="ai">{data.aiReading.text}</p><small>Gerada às {data.aiReading.generatedAt} • {data.aiReading.status}</small></Panel>
+        <div className="minis"><Mini label="Líder" value={leader?.name ?? '-'} detail={leader?.productionFormatted ?? '-'} /><Mini label="Regional líder" value={topRegional?.name ?? '-'} detail={topRegional?.productionFormatted ?? '-'} /><Mini label="Projeção" value={s.projectionFormatted} detail={`${s.goalPercent}% da meta`} /><Mini label="Zeradas" value={String(s.zeroStores)} detail="lojas sem produção" danger /></div>
       </div>
     </div>
   );
 }
 
-function StoresScreen({ data }: { data: ProductionPayload }) {
-  return (
-    <div className="prod-screen-grid stores-grid">
-      <div className="prod-panel top-stores-panel">
-        <div className="prod-panel-title">TOP 10 LOJAS DO DIA</div>
-        <p className="panel-subtitle">Ranking por valor produzido</p>
-        <div className="store-ranking-list">
-          {data.topStores.slice(0, 10).map((store) => (
-            <div key={`${store.position}-${store.name}`} className="store-row">
-              <span className={store.position <= 3 ? 'podium' : ''}>{store.position}º</span>
-              <strong>{store.name}</strong>
-              <small>{store.contracts} ct</small>
-              <em>{store.value}</em>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="prod-panel movers-panel">
-        <div className="prod-panel-title">MAIORES REAÇÕES</div>
-        <p className="panel-subtitle">Desde a última atualização</p>
-        <div className="movers-list">
-          {data.movers.slice(0, 6).map((mover) => (
-            <div key={mover.name} className="mover-row">
-              <span>▲</span>
-              <strong>{mover.name}</strong>
-              <em>+{mover.contractsDelta} ct</em>
-            </div>
-          ))}
-        </div>
-        {data.movers[0] && (
-          <div className="good-news-box">
-            <span>↗</span>
-            <div><strong>REAÇÃO DO DIA</strong><p>{data.movers[0].name} foi a loja que mais cresceu desde a última atualização.</p></div>
-          </div>
-        )}
-      </div>
-
-      <div className="prod-panel zeros-panel">
-        <div className="prod-panel-title danger">LOJAS ZERADAS</div>
-        <p className="panel-subtitle">Sem produção registrada hoje</p>
-        <div className="zero-list">
-          {data.zeroStoresList.slice(0, 10).map((store) => (
-            <div key={store} className="zero-row"><span>●</span><strong>{store}</strong></div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+function Rankings({ data }: { data: RadarPayload }) {
+  return <div className="rankings"><Panel title="Top lojas do dia"><StoreRows rows={data.topStores.slice(0, 8)} /></Panel><Panel title="Top consultores do dia"><ConsultantRows rows={data.topConsultants.slice(0, 8)} /></Panel><Panel title="Prioridade agora" danger><div className="alerts">{data.alerts.slice(0, 5).map((a) => <Alert key={`${a.title}-${a.description}`} alert={a} />)}</div></Panel></div>;
 }
 
-function RegionalsScreen({ data }: { data: ProductionPayload }) {
-  const totals = data.regionalPerformance.reduce((acc, row) => {
-    acc.contracts += row.contracts;
-    acc.activeStores += row.activeStores;
-    acc.zeroStores += row.zeroStores;
-    return acc;
-  }, { contracts: 0, activeStores: 0, zeroStores: 0 });
-
-  return (
-    <div className="prod-screen-grid regionals-grid">
-      <div className="prod-panel regional-table-panel">
-        <div className="prod-panel-title">PERFORMANCE POR REGIONAL</div>
-        <div className="regional-table">
-          <div className="regional-head">
-            <span>Regional</span><span>Contratos</span><span>Produção</span><span>Ticket</span><span>Com prod.</span><span>Zeradas</span>
-          </div>
-          {data.regionalPerformance.slice(0, 7).map((row) => (
-            <div key={row.name} className="regional-row">
-              <strong>{row.name}</strong>
-              <span>{row.contracts}</span>
-              <span>{row.production}</span>
-              <span>{row.averageTicket}</span>
-              <span>{row.activeStores}</span>
-              <em>{row.zeroStores}</em>
-            </div>
-          ))}
-          <div className="regional-row total-row">
-            <strong>TOTAL</strong>
-            <span>{totals.contracts}</span>
-            <span>{data.summary.production}</span>
-            <span>{data.summary.averageTicket}</span>
-            <span>{totals.activeStores}</span>
-            <em>{totals.zeroStores}</em>
-          </div>
-        </div>
-      </div>
-
-      <div className="prod-panel alerts-panel">
-        <div className="prod-panel-title danger">ALERTAS OPERACIONAIS</div>
-        <div className="alerts-list">
-          {data.alerts.slice(0, 5).map((alert) => (
-            <div key={`${alert.title}-${alert.description}`} className={`alert-row ${alert.level}`}>
-              <span>{alertIcon(alert.level)}</span>
-              <div><strong>{alert.title}</strong><p>{alert.description}</p></div>
-            </div>
-          ))}
-        </div>
-        <div className="focus-box">
-          <strong>FOCO DO DIA</strong>
-          <p>Reduzir lojas zeradas, ampliar cobertura e proteger ticket médio.</p>
-        </div>
-      </div>
-    </div>
-  );
+function Regionals({ data }: { data: RadarPayload }) {
+  return <div className="regionals"><Panel title="Produção por regional"><RegionalBars rows={data.regionalPerformance} /></Panel><Panel title="Cobertura operacional"><RegionalTable rows={data.regionalPerformance} /></Panel></div>;
 }
 
-function MetricCard({ label, value, icon, delta, featured = false, danger = false }: { label: string; value: string; icon: string; delta?: MetricDelta; featured?: boolean; danger?: boolean }) {
-  return (
-    <div className={`metric-card ${featured ? 'featured' : ''} ${danger ? 'danger-card' : ''}`}>
-      <span>{icon}</span>
-      <div>
-        <small>{label}</small>
-        <strong>{value}</strong>
-        {delta && <em className={delta.tone}>{delta.label}</em>}
-      </div>
-    </div>
-  );
+function Kpi({ label, value, detail, gold, danger }: { label: string; value: string; detail: string; gold?: boolean; danger?: boolean }) {
+  return <div className={`kpi ${gold ? 'gold' : ''} ${danger ? 'danger' : ''}`}><small>{label}</small><b>{value}</b><span>{detail}</span></div>;
 }
 
-function CompactInfo({ title, value, detail, tone }: { title: string; value: string; detail: string; tone: Tone }) {
-  return (
-    <div className="compact-info">
-      <span>{title}</span>
-      <strong className={tone}>{value}</strong>
-      <small>{detail}</small>
-    </div>
-  );
+function Panel({ title, children, danger, className = '' }: { title: string; children: React.ReactNode; danger?: boolean; className?: string }) {
+  return <section className={`panel ${className}`}><h2 className={danger ? 'dangerText' : ''}>{title}</h2>{children}</section>;
 }
 
-function alertIcon(level: AlertRow['level']) {
-  if (level === 'critical') return '▲';
-  if (level === 'attention') return '◆';
-  if (level === 'good') return '●';
-  return '◷';
+function Mini({ label, value, detail, danger }: { label: string; value: string; detail: string; danger?: boolean }) {
+  return <div className={`mini ${danger ? 'danger' : ''}`}><small>{label}</small><b>{value}</b><span>{detail}</span></div>;
 }
 
-function HoneyIcon() {
-  return (
-    <svg viewBox="0 0 64 64" aria-hidden="true">
-      <path d="M32 5 55 18v28L32 59 9 46V18L32 5Z" />
-      <path d="M22 25 32 19l10 6v12l-10 6-10-6V25Z" />
-      <path d="M13 18 32 7l19 11M13 46l19 11 19-11" />
-    </svg>
-  );
+function Hourly({ rows }: { rows: HourlyRow[] }) {
+  const visible = rows.filter((r) => { const h = Number(r.hour.replace('h', '')); return h >= 7 && h <= 18; });
+  const max = Math.max(...visible.map((r) => r.accumulatedProduction), 1);
+  return <div className="hourly">{visible.map((r) => <div className="hour" key={r.hour}><small>{r.accumulatedProductionFormatted}</small><div><i style={{ height: `${Math.max(3, (r.accumulatedProduction / max) * 100)}%` }} /></div><b>{r.hour}</b></div>)}</div>;
 }
 
-const styles = `
-  * { box-sizing: border-box; }
-  body { margin: 0; background: #020812; }
+function StoreRows({ rows }: { rows: StoreRow[] }) {
+  return <div className="rows">{rows.map((r) => <div className="row" key={r.name}><em>{r.position}</em><b>{r.name}</b><small>{r.regional}</small><span>{r.contracts} ct</span><strong>{r.productionFormatted}</strong></div>)}</div>;
+}
 
-  .prod-screen {
-    position: relative;
-    width: 100vw;
-    height: 100vh;
-    overflow: hidden;
-    background:
-      radial-gradient(circle at 12% 0%, rgba(255, 194, 42, 0.13), transparent 28%),
-      radial-gradient(circle at 92% 20%, rgba(60, 148, 234, 0.13), transparent 30%),
-      linear-gradient(135deg, #020812 0%, #061524 52%, #020812 100%);
-    color: #f5f7fb;
-    isolation: isolate;
-  }
+function ConsultantRows({ rows }: { rows: ConsultantRow[] }) {
+  return <div className="rows">{rows.map((r) => <div className="row" key={r.name}><em>{r.position}</em><b>{r.name}</b><small>{r.store}</small><span>{r.contracts} ct</span><strong>{r.productionFormatted}</strong></div>)}</div>;
+}
 
-  .prod-bg-grid {
-    position: absolute;
-    inset: 0;
-    opacity: 0.32;
-    z-index: -1;
-    background-image:
-      linear-gradient(30deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-      linear-gradient(150deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-      radial-gradient(circle at 1px 1px, rgba(255, 194, 42, 0.10) 1px, transparent 0);
-    background-size: 92px 92px, 92px 92px, 34px 34px;
-  }
+function Alert({ alert }: { alert: AlertRow }) {
+  return <div className={`alert ${alert.level}`}><em>{alert.level === 'critical' ? '▲' : alert.level === 'good' ? '●' : '◆'}</em><div><b>{alert.title}</b><p>{alert.description}</p></div></div>;
+}
 
-  .loading-screen { display: grid; place-items: center; }
-  .prod-loader-card { width: min(620px, 70vw); border: 1px solid rgba(255, 194, 42, 0.45); background: rgba(5, 17, 29, 0.86); padding: 42px 48px; text-align: center; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), inset 0 0 80px rgba(255, 194, 42, 0.07); }
-  .prod-logo-mark { width: 64px; height: 64px; margin: 0 auto 18px; border: 2px solid #ffc22a; display: grid; place-items: center; clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0% 50%); }
-  .prod-logo-mark svg { width: 40px; height: 40px; }
-  .prod-logo-mark svg path { fill: none; stroke: #ffc22a; stroke-width: 4; stroke-linejoin: round; }
+function RegionalBars({ rows }: { rows: RegionalRow[] }) {
+  const max = Math.max(...rows.map((r) => r.production), 1);
+  return <div className="bars">{rows.map((r) => <div className="barRow" key={r.name}><div><b>{r.name}</b><small>{r.contracts} ct • {r.activeStores}/{r.totalStores} lojas</small></div><span><i style={{ width: `${Math.max(4, (r.production / max) * 100)}%` }} /></span><em>{r.productionFormatted}</em></div>)}</div>;
+}
 
-  .prod-loader-card h1,
-  .prod-title-block h1,
-  .prod-title-block span,
-  .prod-screen-pill,
-  .prod-panel-title,
-  .metric-card strong,
-  .rhythm-label,
-  .regional-head,
-  .prod-footer-phrase {
-    font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
-    letter-spacing: 0.025em;
-    text-transform: uppercase;
-  }
+function RegionalTable({ rows }: { rows: RegionalRow[] }) {
+  return <div className="table"><div className="head"><span>Regional</span><span>Contratos</span><span>Produção</span><span>Lojas</span><span>Zeradas</span></div>{rows.map((r) => <div className="tr" key={r.name}><b>{r.name}</b><span>{r.contracts}</span><span>{r.productionFormatted}</span><span>{r.activeStores}/{r.totalStores}</span><em>{r.zeroStores}</em></div>)}</div>;
+}
 
-  .prod-topbar { height: 82px; padding: 12px 22px 10px; display: grid; grid-template-columns: 126px 1fr 184px; align-items: start; gap: 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.14); background: linear-gradient(to bottom, rgba(2, 8, 18, 0.98), rgba(2, 8, 18, 0.68)); }
-  .prod-screen-pill { display: inline-flex; align-items: center; justify-content: center; height: 30px; background: linear-gradient(135deg, #ffc22a, #ff8619); color: #07111e; font-size: 16px; font-weight: 900; clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%); }
-  .prod-title-block { text-align: center; min-width: 0; }
-  .prod-title-block span { display: block; margin-bottom: 2px; color: white; font-size: clamp(14px, 1.3vw, 20px); font-weight: 800; }
-  .prod-title-block h1 { margin: 0; font-size: clamp(32px, 4.1vw, 58px); line-height: 0.84; font-weight: 900; font-style: italic; }
-  .prod-title-block h1 em { color: #ffc22a; font-style: italic; }
-  .prod-update-box { justify-self: end; text-align: right; }
-  .prod-update-box span { display: block; color: rgba(255,255,255,0.84); font-weight: 900; font-size: 12px; }
-  .prod-update-box strong { display: block; color: #ffc22a; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(34px, 3.7vw, 52px); line-height: 0.82; font-weight: 900; }
-  .prod-update-box small { display: inline-flex; align-items: center; gap: 8px; margin-top: 5px; color: rgba(255,255,255,0.78); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-  .prod-update-box i { width: 9px; height: 9px; border-radius: 50%; background: #58c94f; box-shadow: 0 0 0 5px rgba(88,201,79,0.16); }
+function Logo() {
+  return <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 5 55 18v28L32 59 9 46V18L32 5Z" /><path d="M22 25 32 19l10 6v12l-10 6-10-6V25Z" /></svg>;
+}
 
-  .prod-stage { height: calc(100vh - 136px); padding: 12px 16px 10px; }
-  .prod-stage-animated { animation: prodScreenIn 460ms cubic-bezier(0.18, 0.72, 0.18, 1) both; }
-  @keyframes prodScreenIn { from { opacity: 0; transform: translateY(8px); filter: blur(4px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+function delta(value?: number) {
+  if (typeof value !== 'number') return '0%';
+  return `${value > 0 ? '+' : ''}${value}%`;
+}
 
-  .prod-screen-grid { height: 100%; display: grid; gap: 12px; min-height: 0; }
-  .compact-executive-grid { grid-template-columns: minmax(0, 1.42fr) minmax(355px, 0.9fr); }
-  .executive-left { display: grid; grid-template-rows: auto 92px; gap: 12px; min-height: 0; }
-  .compact-metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(132px, 1fr)); gap: 12px; min-height: 0; }
-  .compact-insight-column { display: grid; grid-template-rows: 0.82fr 1.25fr 0.75fr; gap: 12px; min-height: 0; }
-  .stores-grid { grid-template-columns: minmax(0, 1.28fr) minmax(320px, 0.9fr) minmax(320px, 0.95fr); }
-  .regionals-grid { grid-template-columns: minmax(0, 1.65fr) minmax(360px, 0.85fr); }
-
-  .metric-card,
-  .prod-panel,
-  .compact-info { border: 1px solid rgba(255,255,255,0.16); background: linear-gradient(180deg, rgba(7,20,34,0.96), rgba(5,16,28,0.92)); box-shadow: 0 18px 55px rgba(0,0,0,0.30), inset 0 0 48px rgba(255,255,255,0.025); }
-  .metric-card { padding: 14px 16px; display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 13px; min-width: 0; min-height: 0; }
-  .metric-card.featured { border-color: rgba(255,194,42,0.30); background: linear-gradient(180deg, rgba(10,28,45,0.98), rgba(5,16,28,0.94)); }
-  .metric-card.danger-card { border-color: rgba(255,77,61,0.34); }
-  .metric-card > span { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid rgba(255,194,42,0.45); border-radius: 50%; color: #ffc22a; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: 16px; font-weight: 900; }
-  .metric-card small { display: block; color: rgba(255,255,255,0.78); font-weight: 900; text-transform: uppercase; font-size: clamp(10px, 0.82vw, 13px); }
-  .metric-card strong { display: block; margin-top: 7px; font-size: clamp(27px, 2.65vw, 42px); line-height: 0.9; font-weight: 900; white-space: nowrap; }
-  .metric-card.featured strong { font-size: clamp(32px, 3vw, 48px); }
-  .metric-card em { display: block; margin-top: 9px; font-style: normal; font-size: clamp(11px, 0.88vw, 14px); font-weight: 900; white-space: nowrap; }
-
-  .positive { color: #58c94f !important; }
-  .negative { color: #ff4d3d !important; }
-  .neutral { color: #aab2bf !important; }
-
-  .executive-strip { display: grid; grid-template-columns: 1.05fr 0.8fr 0.75fr; gap: 12px; min-height: 0; }
-  .compact-info { padding: 13px 16px; min-width: 0; overflow: hidden; }
-  .compact-info span { display: block; color: rgba(255,255,255,0.68); font-size: 11px; font-weight: 900; text-transform: uppercase; }
-  .compact-info strong { display: block; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: white; font-size: clamp(16px, 1.35vw, 23px); }
-  .compact-info small { display: block; margin-top: 6px; color: rgba(255,255,255,0.72); font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  .prod-panel { padding: 15px 17px; min-width: 0; min-height: 0; overflow: hidden; }
-  .prod-panel-title { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; color: #ffc22a; font-size: clamp(17px, 1.45vw, 25px); line-height: 1; font-weight: 900; }
-  .prod-panel-title.danger { color: #ff4d3d; }
-  .panel-subtitle { margin: -4px 0 12px; color: rgba(255,255,255,0.70); font-size: 13px; }
-
-  .rhythm-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .rhythm-line em { color: white; font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; font-size: clamp(32px, 3vw, 50px); font-style: italic; font-weight: 900; line-height: .8; }
-  .rhythm-label { display: block; margin: 0; font-size: clamp(25px, 2.2vw, 38px); line-height: .95; font-weight: 900; }
-  .rhythm-panel p { margin: 6px 0 12px; font-size: clamp(13px, 1vw, 17px); font-weight: 700; color: white; }
-  .rhythm-bar { height: 11px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #e81635, #ffb21e, #58c94f); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
-  .rhythm-bar i { display: block; height: 100%; border-right: 7px solid white; }
-
-  .ai-panel { border-color: rgba(255,194,42,0.54); box-shadow: 0 18px 55px rgba(0,0,0,0.30), 0 0 22px rgba(255,194,42,0.10), inset 0 0 48px rgba(255,194,42,0.04); }
-  .ai-panel p { margin: 0; color: white; font-size: clamp(13px, 1.02vw, 17px); line-height: 1.32; font-weight: 650; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
-  .ai-panel small { display: block; margin-top: 10px; color: rgba(255,255,255,0.55); font-size: 10px; font-weight: 800; text-transform: uppercase; }
-
-  .executive-alert-panel strong { display: block; margin-top: 2px; color: white; font-size: clamp(20px, 1.7vw, 30px); line-height: 1; font-weight: 900; text-transform: uppercase; }
-  .executive-alert-panel p { margin: 8px 0 0; color: rgba(255,255,255,0.78); font-size: clamp(12px, .95vw, 15px); line-height: 1.25; }
-
-  .store-ranking-list,
-  .movers-list,
-  .zero-list,
-  .alerts-list { display: grid; gap: 8px; min-height: 0; }
-  .store-row { min-height: 38px; display: grid; grid-template-columns: 46px minmax(0, 1fr) 56px 106px; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: 800; }
-  .store-row span { color: rgba(255,255,255,0.82); }
-  .store-row span.podium { color: #ffc22a; }
-  .store-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(13px, 1vw, 17px); }
-  .store-row small { color: #aab2bf; font-weight: 900; white-space: nowrap; }
-  .store-row em { color: white; font-style: normal; text-align: right; font-weight: 900; white-space: nowrap; }
-
-  .mover-row { min-height: 44px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 76px; align-items: center; gap: 10px; font-weight: 900; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  .mover-row span, .mover-row em { color: #58c94f; font-style: normal; }
-  .mover-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(13px, 1vw, 17px); }
-  .good-news-box { margin-top: 18px; padding: 14px; display: grid; grid-template-columns: 42px 1fr; gap: 12px; border: 1px solid rgba(88,201,79,0.42); background: rgba(88,201,79,0.09); }
-  .good-news-box > span { color: #58c94f; font-size: 32px; font-weight: 900; }
-  .good-news-box strong { color: #58c94f; }
-  .good-news-box p { margin: 5px 0 0; color: white; line-height: 1.28; font-size: 13px; }
-
-  .zero-row { min-height: 37px; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 10px; color: white; font-weight: 800; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  .zero-row span { color: #ff4d3d; font-size: 13px; }
-  .zero-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(13px, 1vw, 17px); }
-
-  .regional-table { height: calc(100% - 44px); display: grid; grid-template-rows: 38px repeat(8, minmax(34px, 1fr)); }
-  .regional-head,
-  .regional-row { display: grid; grid-template-columns: 1.15fr 0.62fr 0.92fr 0.72fr 0.74fr 0.62fr; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.09); }
-  .regional-head { color: rgba(255,255,255,0.78); font-size: clamp(11px, 0.88vw, 14px); font-weight: 900; }
-  .regional-row { font-weight: 800; font-size: clamp(12px, 0.95vw, 16px); }
-  .regional-row strong, .regional-row span, .regional-row em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .regional-row strong { color: white; }
-  .regional-row span { color: rgba(255,255,255,0.84); }
-  .regional-row em { color: #ff4d3d; font-style: normal; font-weight: 900; }
-  .total-row { border-top: 1px solid rgba(60,148,234,0.36); }
-  .total-row strong, .total-row span { color: #7fc8ff; }
-
-  .alert-row { min-height: 66px; display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 12px; padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.12); }
-  .alert-row > span { font-size: 24px; font-weight: 900; }
-  .alert-row.critical > span { color: #ff4d3d; }
-  .alert-row.attention > span { color: #ffc22a; }
-  .alert-row.good > span { color: #58c94f; }
-  .alert-row.info > span { color: #3c94ea; }
-  .alert-row strong { color: white; font-size: clamp(13px, 1vw, 17px); }
-  .alert-row p { margin: 4px 0 0; color: rgba(255,255,255,0.78); line-height: 1.22; font-size: clamp(12px, .95vw, 15px); }
-
-  .focus-box { margin-top: 14px; padding: 14px; border: 1px solid rgba(60,148,234,0.56); background: rgba(60,148,234,0.12); }
-  .focus-box strong { color: #7fc8ff; }
-  .focus-box p { margin: 7px 0 0; color: white; font-size: 13px; line-height: 1.28; }
-
-  .prod-footer { height: 54px; padding: 0 22px; display: grid; grid-template-columns: 174px 1fr 230px; align-items: center; gap: 18px; border-top: 1px solid rgba(255,255,255,0.13); background: rgba(2,8,18,0.94); }
-  .prod-footer-logo { display: flex; align-items: center; gap: 10px; color: white; }
-  .prod-footer-logo svg { width: 30px; height: 30px; }
-  .prod-footer-logo svg path { fill: none; stroke: #ffc22a; stroke-width: 4; stroke-linejoin: round; }
-  .prod-footer-logo strong { font-weight: 900; }
-  .prod-ticker-track { overflow: hidden; white-space: nowrap; }
-  .prod-ticker-content { display: inline-block; color: rgba(255,255,255,0.78); font-weight: 800; animation: prodTicker 34s linear infinite; }
-  @keyframes prodTicker { from { transform: translateX(48%); } to { transform: translateX(-100%); } }
-  .prod-footer-phrase { justify-self: end; color: #ffc22a; font-size: 15px; font-weight: 900; }
-
-  @media (max-height: 760px) {
-    .prod-topbar { height: 76px; padding-top: 10px; }
-    .prod-stage { height: calc(100vh - 128px); padding-top: 10px; padding-bottom: 10px; }
-    .prod-footer { height: 52px; }
-    .compact-executive-grid, .compact-metric-grid, .compact-insight-column, .executive-strip, .prod-screen-grid { gap: 10px; }
-    .compact-metric-grid { grid-template-rows: repeat(2, minmax(118px, 1fr)); }
-    .executive-left { grid-template-rows: auto 82px; }
-    .metric-card { padding: 12px; grid-template-columns: 40px 1fr; }
-    .metric-card > span { width: 36px; height: 36px; font-size: 15px; }
-    .metric-card strong { font-size: clamp(24px, 2.35vw, 36px); }
-    .metric-card.featured strong { font-size: clamp(27px, 2.65vw, 40px); }
-    .prod-panel { padding: 12px 14px; }
-    .ai-panel p { -webkit-line-clamp: 5; }
-  }
+const css = `
+  *{box-sizing:border-box} html,body{margin:0;background:#020812;overflow:hidden}.screen{position:relative;width:100vw;height:100vh;color:#f8fbff;background:radial-gradient(circle at 10% 0%,rgba(255,194,42,.18),transparent 28%),radial-gradient(circle at 92% 16%,rgba(34,115,215,.19),transparent 30%),linear-gradient(135deg,#020812,#051426 48%,#020812);font-family:Inter,system-ui,Segoe UI,sans-serif}.bg{position:absolute;inset:0;opacity:.28;background-image:linear-gradient(30deg,rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(150deg,rgba(255,255,255,.03) 1px,transparent 1px),radial-gradient(circle at 1px 1px,rgba(255,194,42,.10) 1px,transparent 0);background-size:92px 92px,92px 92px,34px 34px}.loader{position:relative;z-index:1;margin:auto;width:min(680px,72vw);padding:48px;text-align:center;border:1px solid rgba(255,194,42,.44);background:rgba(5,17,29,.88)}.loader h1{font-size:54px;font-style:italic;margin:18px 0 8px}.loader p{color:rgba(255,255,255,.72)}svg{width:58px;height:58px}svg path{fill:none;stroke:#ffc22a;stroke-width:4;stroke-linejoin:round}header{position:relative;z-index:1;height:102px;padding:16px 26px 12px;display:grid;grid-template-columns:360px 1fr 220px;align-items:center;gap:24px;border-bottom:1px solid rgba(255,255,255,.14);background:linear-gradient(to bottom,rgba(2,8,18,.98),rgba(2,8,18,.62))}.brand{display:flex;align-items:center;gap:15px}.brand b{display:block;font-size:25px;line-height:.95;font-weight:1000}.brand small{display:block;margin-top:6px;color:#ffc22a;font-size:12px;font-weight:900;letter-spacing:.18em}.title{text-align:center}.title span{color:rgba(255,255,255,.78);font-size:17px;font-weight:900;letter-spacing:.22em}.title h1{margin:4px 0 0;font-size:clamp(42px,5.1vw,76px);line-height:.82;font-weight:1000;font-style:italic}.updated{justify-self:end;text-align:right;padding:12px 16px;min-width:190px;border:1px solid rgba(255,194,42,.32);background:rgba(4,16,31,.78)}.updated small{display:block;color:rgba(255,255,255,.72);font-size:12px;font-weight:900}.updated b{display:block;color:#ffc22a;font-size:46px;line-height:.9}.updated span{color:rgba(255,255,255,.68);font-weight:800}.stage{position:relative;z-index:1;height:calc(100vh - 158px);padding:16px 18px 12px;animation:in .45s ease both}@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}.panel,.kpi,.mini{border:1px solid rgba(255,255,255,.15);background:linear-gradient(180deg,rgba(7,20,34,.96),rgba(5,16,28,.92));box-shadow:0 18px 55px rgba(0,0,0,.30),inset 0 0 48px rgba(255,255,255,.025)}.panel{padding:18px;overflow:hidden}.panel h2{margin:0 0 14px;color:#ffc22a;font-size:21px;font-weight:1000;letter-spacing:.08em;text-transform:uppercase}.dangerText{color:#ff6658!important}.overview{height:100%;display:grid;grid-template-columns:1.38fr .82fr;grid-template-rows:174px 1fr;gap:14px}.kpis{grid-column:1/3;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.kpi{padding:18px}.kpi.gold{border-color:rgba(255,194,42,.42)}.kpi.danger b{color:#ff6658}.kpi small,.mini small{display:block;color:rgba(255,255,255,.72);font-size:14px;font-weight:900;text-transform:uppercase}.kpi b{display:block;margin-top:5px;font-size:clamp(30px,3vw,52px);line-height:.98;letter-spacing:-.045em;white-space:nowrap}.kpi span,.mini span{display:block;margin-top:8px;color:rgba(255,255,255,.62);font-size:13px;font-weight:800}.chartPanel{min-height:0}.hourly{height:calc(100% - 36px);display:grid;grid-template-columns:repeat(12,1fr);gap:10px;align-items:end;padding-top:18px}.hour{height:100%;display:grid;grid-template-rows:24px 1fr 24px;gap:7px;text-align:center}.hour small{color:rgba(255,255,255,.70);font-size:11px;font-weight:800}.hour div{position:relative;height:100%;border-radius:999px 999px 10px 10px;background:rgba(255,255,255,.06);overflow:hidden}.hour i{position:absolute;left:0;right:0;bottom:0;display:block;border-radius:inherit;background:linear-gradient(180deg,#ffc22a,#ff8619)}.hour b{color:rgba(255,255,255,.68);font-size:12px}.side{display:grid;grid-template-rows:.8fr 1fr 1fr;gap:14px}.rhythm{display:flex;align-items:baseline;justify-content:space-between;margin:10px 0 12px}.rhythm b{font-size:clamp(28px,2.6vw,45px);line-height:.92}.rhythm.negative b{color:#ff6658}.rhythm.positive b{color:#69e05f}.rhythm strong{color:#ffc22a;font-size:42px}.bar{height:14px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}.bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff6658,#ffc22a)}.panel p{color:rgba(255,255,255,.76);font-size:16px;line-height:1.38}.ai{font-size:18px!important}.minis{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.mini{padding:14px}.mini b{display:block;margin:5px 0;color:#ffc22a;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mini.danger b{color:#ff6658}.rankings{height:100%;display:grid;grid-template-columns:1fr 1fr 400px;gap:14px}.rows{display:grid;gap:10px}.row{display:grid;grid-template-columns:44px minmax(0,1fr) 118px 68px 128px;align-items:center;gap:10px;padding:12px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.08)}.row em{width:32px;height:32px;display:grid;place-items:center;border-radius:10px;background:linear-gradient(135deg,#ffc22a,#ff8619);color:#061524;font-style:normal;font-weight:1000}.row b{font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row small{color:rgba(255,255,255,.58);font-size:12px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row span{color:#69e05f;font-size:15px;font-weight:1000;text-align:right}.row strong{color:#ffc22a;font-size:17px;text-align:right;white-space:nowrap}.alerts{display:grid;gap:12px}.alert{display:grid;grid-template-columns:42px 1fr;gap:12px;padding:14px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.10)}.alert em{width:34px;height:34px;display:grid;place-items:center;border-radius:50%;color:#ffc22a;border:1px solid currentColor;font-style:normal;font-weight:1000}.alert.critical em{color:#ff6658}.alert.good em{color:#69e05f}.alert b{display:block;font-size:18px;text-transform:uppercase}.alert p{margin:4px 0 0;color:rgba(255,255,255,.70);font-size:14px}.regionals{height:100%;display:grid;grid-template-columns:1.12fr 1fr;gap:14px}.bars{display:grid;gap:18px}.barRow{display:grid;grid-template-columns:230px 1fr 148px;align-items:center;gap:16px}.barRow b{display:block;font-size:22px}.barRow small{display:block;margin-top:4px;color:rgba(255,255,255,.56);font-size:13px;font-weight:800}.barRow span{height:24px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}.barRow i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff8619,#ffc22a)}.barRow em{color:#ffc22a;font-size:20px;font-style:normal;font-weight:1000;text-align:right}.table{display:grid;gap:9px}.head,.tr{display:grid;grid-template-columns:1fr 96px 142px 100px 90px;align-items:center;gap:10px}.head{padding:0 12px 6px;color:rgba(255,255,255,.52);font-size:12px;font-weight:900;text-transform:uppercase}.tr{padding:14px 12px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.08)}.tr b{font-size:21px}.tr span{color:rgba(255,255,255,.82);font-size:18px;font-weight:900}.tr em{color:#ff6658;font-size:22px;font-style:normal;font-weight:1000}footer{position:relative;z-index:1;height:56px;display:grid;grid-template-columns:180px 1fr 190px;align-items:center;gap:18px;padding:0 22px;border-top:1px solid rgba(255,255,255,.14);background:rgba(2,8,18,.88)}footer strong{color:#ffc22a}footer div{overflow:hidden;white-space:nowrap;color:rgba(255,255,255,.86);font-size:17px;font-weight:900}footer div span{display:inline-block;min-width:100%;animation:ticker 34s linear infinite}@keyframes ticker{from{transform:translateX(100%)}to{transform:translateX(-100%)}}footer em{color:rgba(255,255,255,.54);font-size:12px;font-style:normal;font-weight:900;letter-spacing:.14em;text-align:right}
 `;
