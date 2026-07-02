@@ -3,47 +3,81 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-type AnyRecord = Record<string, unknown>;
-
-type MetricDelta = {
-  label: string;
-  tone: 'positive' | 'negative' | 'neutral';
-};
+type Tone = 'positive' | 'negative' | 'neutral';
+type AlertLevel = 'good' | 'attention' | 'critical' | 'info';
+type CacheState = 'hit' | 'stale' | 'miss' | 'mock';
 
 type Summary = {
-  contracts: number;
-  production: string;
-  averageTicket: string;
+  contractsToday: number;
+  productionToday: number;
+  productionTodayFormatted: string;
+  averageTicket: number;
+  averageTicketFormatted: string;
   activeStores: number;
+  totalStores: number;
   zeroStores: number;
-  projection: string;
+  projection: number;
+  projectionFormatted: string;
   goalPercent: number;
+};
+
+type ComparisonBlock = {
+  contracts?: number;
+  production?: number;
+  productionFormatted?: string;
+  productionDeltaPercent?: number;
+  contractsAverage?: number;
+  productionAverage?: number;
+  productionAverageFormatted?: string;
 };
 
 type StoreRow = {
   position: number;
   name: string;
+  regional: string;
   contracts: number;
-  value: string;
+  production: number;
+  averageTicket: number;
+  productionFormatted: string;
+  averageTicketFormatted: string;
 };
 
-type MoverRow = {
+type ConsultantRow = {
+  position: number;
   name: string;
-  contractsDelta: number;
-  valueDelta: string;
+  store: string;
+  regional: string;
+  contracts: number;
+  production: number;
+  averageTicket: number;
+  productionFormatted: string;
+  averageTicketFormatted: string;
 };
 
 type RegionalRow = {
   name: string;
   contracts: number;
-  production: string;
-  averageTicket: string;
+  production: number;
+  productionFormatted: string;
+  averageTicket: number;
+  averageTicketFormatted: string;
   activeStores: number;
+  totalStores: number;
   zeroStores: number;
 };
 
+type HourlyRow = {
+  hour: string;
+  contracts: number;
+  production: number;
+  productionFormatted: string;
+  accumulatedContracts: number;
+  accumulatedProduction: number;
+  accumulatedProductionFormatted: string;
+};
+
 type AlertRow = {
-  level: 'good' | 'attention' | 'critical' | 'info';
+  level: AlertLevel;
   title: string;
   description: string;
 };
@@ -51,31 +85,36 @@ type AlertRow = {
 type AiReading = {
   generatedAt: string;
   text: string;
-  status: 'OK' | 'CACHE' | 'FALLBACK' | 'ERROR';
+  status: string;
 };
 
-type ProductionPayload = {
+type RadarPayload = {
   ok: boolean;
-  source: 'apps-script' | 'mock' | 'normalized';
+  source: string;
+  version: string;
   updatedAt: string;
-  dateLabel: string;
+  date: string;
+  cache?: boolean;
   summary: Summary;
-  deltas: Record<keyof Summary, MetricDelta | undefined>;
+  comparisons: {
+    yesterday: ComparisonBlock;
+    sevenDayAverage: ComparisonBlock;
+  };
   rhythm: {
     label: string;
-    description: string;
+    tone: Tone;
     percent: number;
-    tone: 'positive' | 'negative' | 'neutral';
+    description: string;
   };
-  aiReading: AiReading;
+  hourlyEvolution: HourlyRow[];
   topStores: StoreRow[];
-  movers: MoverRow[];
-  zeroStoresList: string[];
+  topConsultants: ConsultantRow[];
   regionalPerformance: RegionalRow[];
   alerts: AlertRow[];
+  aiReading: AiReading;
   ticker: string[];
   diagnostics?: {
-    cache: 'hit' | 'stale' | 'miss' | 'mock';
+    cache: CacheState;
     responseMs: number;
     fetchedAt?: string;
     warning?: string;
@@ -83,108 +122,97 @@ type ProductionPayload = {
   warning?: string;
 };
 
-const CACHE_TTL_MS = 120000;
-const STALE_TTL_MS = 900000;
-const FETCH_TIMEOUT_MS = 20000;
+type AnyRecord = Record<string, unknown>;
+
+const CACHE_TTL_MS = 60_000;
+const STALE_TTL_MS = 8 * 60_000;
+const FETCH_TIMEOUT_MS = 22_000;
 
 let memoryCache: {
-  payload: ProductionPayload;
+  payload: RadarPayload;
   fetchedAt: number;
 } | null = null;
 
-let refreshPromise: Promise<ProductionPayload> | null = null;
+let refreshPromise: Promise<RadarPayload> | null = null;
 
-const MOCK_PAYLOAD: ProductionPayload = {
+const MOCK_PAYLOAD: RadarPayload = {
   ok: true,
   source: 'mock',
-  updatedAt: '15h10',
-  dateLabel: 'HOJE',
+  version: 'RADAR_MOCK',
+  updatedAt: '13h00',
+  date: new Intl.DateTimeFormat('pt-BR').format(new Date()),
   summary: {
-    contracts: 42,
-    production: 'R$ 186,4 mil',
-    averageTicket: 'R$ 4,4 mil',
-    activeStores: 26,
-    zeroStores: 8,
-    projection: 'R$ 310 mil',
-    goalPercent: 92
+    contractsToday: 51,
+    productionToday: 60444.19,
+    productionTodayFormatted: 'R$ 60.444,19',
+    averageTicket: 1185.18,
+    averageTicketFormatted: 'R$ 1.185,18',
+    activeStores: 21,
+    totalStores: 34,
+    zeroStores: 13,
+    projection: 118690.41,
+    projectionFormatted: 'R$ 118.690,41',
+    goalPercent: 35
   },
-  deltas: {
-    contracts: { label: '+8 vs ontem', tone: 'positive' },
-    production: { label: '+18% vs ontem', tone: 'positive' },
-    averageTicket: { label: '-3% vs ontem', tone: 'negative' },
-    activeStores: { label: '+2 vs ontem', tone: 'positive' },
-    zeroStores: { label: '+1 vs ontem', tone: 'negative' },
-    projection: { label: '92% da meta', tone: 'positive' },
-    goalPercent: undefined
+  comparisons: {
+    yesterday: {
+      contracts: 64,
+      production: 77161.24,
+      productionFormatted: 'R$ 77.161,24',
+      productionDeltaPercent: -22
+    },
+    sevenDayAverage: {
+      contractsAverage: 64,
+      productionAverage: 68698.28,
+      productionAverageFormatted: 'R$ 68.698,28',
+      productionDeltaPercent: -12
+    }
   },
   rhythm: {
-    label: 'ACIMA DA MEDIA',
-    description: '+18% vs ontem no mesmo horario',
-    percent: 82,
-    tone: 'positive'
+    label: 'ABAIXO DO RITMO',
+    tone: 'negative',
+    percent: 35,
+    description: '35% da meta projetada do dia'
   },
-  aiReading: {
-    generatedAt: '15h10',
-    status: 'FALLBACK',
-    text: 'O dia esta acima da media em valor produzido e contratos. A producao esta concentrada nas primeiras lojas, com atencao para regionais com lojas zeradas. Prioridade: reduzir lojas sem producao e proteger o ticket medio.'
-  },
+  hourlyEvolution: [],
   topStores: [
-    { position: 1, name: 'Vila Velha Centro', contracts: 8, value: 'R$ 42,1 mil' },
-    { position: 2, name: 'Cariacica Campo Grande', contracts: 7, value: 'R$ 38,4 mil' },
-    { position: 3, name: 'Serra Laranjeiras', contracts: 6, value: 'R$ 31,7 mil' },
-    { position: 4, name: 'Linhares Centro', contracts: 5, value: 'R$ 18,9 mil' },
-    { position: 5, name: 'Colatina Centro', contracts: 4, value: 'R$ 15,2 mil' },
-    { position: 6, name: 'Guarapari Centro', contracts: 3, value: 'R$ 8,7 mil' },
-    { position: 7, name: 'Sao Mateus Centro', contracts: 3, value: 'R$ 7,4 mil' },
-    { position: 8, name: 'Porto Seguro Centro', contracts: 2, value: 'R$ 6,1 mil' },
-    { position: 9, name: 'Cachoeiro Centro', contracts: 2, value: 'R$ 5,8 mil' },
-    { position: 10, name: 'Nova Venecia Centro', contracts: 2, value: 'R$ 4,3 mil' }
+    { position: 1, name: 'Cariacica Campo Grande', regional: 'MARIELEN', contracts: 5, production: 9474, averageTicket: 1894.8, productionFormatted: 'R$ 9.474,00', averageTicketFormatted: 'R$ 1.894,80' },
+    { position: 2, name: 'Cuiabá Prainha', regional: 'MARIA FERNANDA', contracts: 3, production: 6994.08, averageTicket: 2331.36, productionFormatted: 'R$ 6.994,08', averageTicketFormatted: 'R$ 2.331,36' },
+    { position: 3, name: 'Rondonópolis Centro', regional: 'MARIA FERNANDA', contracts: 4, production: 5976.59, averageTicket: 1494.15, productionFormatted: 'R$ 5.976,59', averageTicketFormatted: 'R$ 1.494,15' }
   ],
-  movers: [
-    { name: 'Linhares Centro', contractsDelta: 4, valueDelta: 'R$ 9,1 mil' },
-    { name: 'Porto Seguro Centro', contractsDelta: 3, valueDelta: 'R$ 7,4 mil' },
-    { name: 'Colatina Centro', contractsDelta: 2, valueDelta: 'R$ 5,2 mil' },
-    { name: 'Sao Mateus Centro', contractsDelta: 2, valueDelta: 'R$ 4,8 mil' },
-    { name: 'Guarapari Centro', contractsDelta: 1, valueDelta: 'R$ 3,1 mil' }
-  ],
-  zeroStoresList: [
-    'Aracruz Centro',
-    'Itapemirim Centro',
-    'Teixeira de Freitas Centro',
-    'Sao Gabriel da Palha Centro',
-    'Barra de Sao Francisco Centro',
-    'Montanha Centro',
-    'Baixo Guandu Centro',
-    'Pinheiros Centro'
+  topConsultants: [
+    { position: 1, name: 'LARYSSA SOUZA', store: 'Cuiabá Prainha', regional: 'MARIA FERNANDA', contracts: 3, production: 6994.08, averageTicket: 2331.36, productionFormatted: 'R$ 6.994,08', averageTicketFormatted: 'R$ 2.331,36' }
   ],
   regionalPerformance: [
-    { name: 'Daielly', contracts: 16, production: 'R$ 72,3 mil', averageTicket: 'R$ 4,5 mil', activeStores: 10, zeroStores: 2 },
-    { name: 'Mayara', contracts: 12, production: 'R$ 58,1 mil', averageTicket: 'R$ 4,8 mil', activeStores: 8, zeroStores: 4 },
-    { name: 'Marielen', contracts: 9, production: 'R$ 44,9 mil', averageTicket: 'R$ 5,0 mil', activeStores: 7, zeroStores: 1 },
-    { name: 'Alessandro', contracts: 5, production: 'R$ 28,5 mil', averageTicket: 'R$ 5,7 mil', activeStores: 4, zeroStores: 1 },
-    { name: 'Outros', contracts: 0, production: 'R$ 7,3 mil', averageTicket: '-', activeStores: 2, zeroStores: 0 }
+    { name: 'MARIA FERNANDA', contracts: 17, production: 26638.44, productionFormatted: 'R$ 26.638,44', averageTicket: 1566.97, averageTicketFormatted: 'R$ 1.566,97', activeStores: 6, totalStores: 7, zeroStores: 1 },
+    { name: 'MARIELEN', contracts: 22, production: 23487.51, productionFormatted: 'R$ 23.487,51', averageTicket: 1067.61, averageTicketFormatted: 'R$ 1.067,61', activeStores: 9, totalStores: 13, zeroStores: 4 },
+    { name: 'DAIELLY', contracts: 7, production: 6256.44, productionFormatted: 'R$ 6.256,44', averageTicket: 893.78, averageTicketFormatted: 'R$ 893,78', activeStores: 5, totalStores: 12, zeroStores: 7 }
   ],
   alerts: [
-    { level: 'critical', title: 'Lojas zeradas', description: '8 lojas ainda sem producao hoje.' },
-    { level: 'attention', title: 'Concentracao', description: 'Top 3 representa parte relevante da producao.' },
-    { level: 'info', title: 'Atualizacao', description: 'Ultima carga ha 7 minutos.' },
-    { level: 'good', title: 'Boa reacao', description: 'Linhares Centro foi a loja que mais cresceu.' }
+    { level: 'critical', title: 'Lojas zeradas', description: '13 lojas ainda sem produção hoje.' },
+    { level: 'critical', title: 'Regional em atenção', description: 'DAIELLY tem 7 lojas zeradas.' }
   ],
+  aiReading: {
+    status: 'DETERMINISTIC_MVP',
+    generatedAt: '13h00',
+    text: 'O dia tem 51 contratos e R$ 60.444,19 em produção. O principal ponto de atenção são 13 lojas zeradas.'
+  },
   ticker: [
-    'Cada contrato muda o resultado do dia',
-    'Prioridade: reduzir lojas zeradas',
-    'Acompanhe top lojas e regionais em tempo real'
+    'Contratos hoje: 51',
+    'Produção hoje: R$ 60.444,19',
+    'Lojas zeradas: 13'
   ]
 };
 
 export async function GET() {
   const startedAt = Date.now();
-  const appsScriptUrl = process.env.APPS_SCRIPT_PRODUCAO_URL;
+  const rawUrl = process.env.APPS_SCRIPT_RADAR_TV_URL || process.env.APPS_SCRIPT_PRODUCAO_URL || process.env.APPS_SCRIPT_URL;
 
-  if (!appsScriptUrl) {
-    return jsonNoStore(withDiagnostics(MOCK_PAYLOAD, 'mock', startedAt, 'APPS_SCRIPT_PRODUCAO_URL nao configurada'));
+  if (!rawUrl) {
+    return jsonNoStore(withDiagnostics(MOCK_PAYLOAD, 'mock', startedAt, 'URL do Apps Script não configurada no Vercel.'));
   }
 
+  const appsScriptUrl = normalizeAppsScriptUrl(rawUrl);
   const now = Date.now();
   const cacheAge = memoryCache ? now - memoryCache.fetchedAt : Number.POSITIVE_INFINITY;
 
@@ -201,23 +229,32 @@ export async function GET() {
     const payload = await refreshCache(appsScriptUrl);
     return jsonCached(withDiagnostics(payload, 'miss', startedAt));
   } catch (error) {
-    const warning = error instanceof Error ? error.message : 'Erro desconhecido ao consultar Apps Script';
+    const warning = error instanceof Error ? error.message : 'Erro desconhecido ao consultar o Radar no Apps Script.';
 
     if (memoryCache) {
       return jsonCached(withDiagnostics(memoryCache.payload, 'stale', startedAt, warning));
     }
 
-    return jsonNoStore(withDiagnostics({
-      ...MOCK_PAYLOAD,
-      source: 'mock',
-      warning
-    }, 'mock', startedAt, warning));
+    return jsonNoStore(withDiagnostics({ ...MOCK_PAYLOAD, source: 'mock', warning }, 'mock', startedAt, warning));
+  }
+}
+
+function normalizeAppsScriptUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    url.searchParams.delete('painel');
+    url.searchParams.delete('api');
+    url.searchParams.set('rota', 'radar-tv');
+    return url.toString();
+  } catch {
+    const separator = rawUrl.includes('?') ? '&' : '?';
+    return `${rawUrl}${separator}rota=radar-tv`;
   }
 }
 
 async function refreshCache(appsScriptUrl: string) {
   if (!refreshPromise) {
-    refreshPromise = fetchAppsScriptPayload(appsScriptUrl)
+    refreshPromise = fetchRadarPayload(appsScriptUrl)
       .then((payload) => {
         memoryCache = {
           payload,
@@ -233,7 +270,7 @@ async function refreshCache(appsScriptUrl: string) {
   return refreshPromise;
 }
 
-async function fetchAppsScriptPayload(appsScriptUrl: string) {
+async function fetchRadarPayload(appsScriptUrl: string) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -251,18 +288,175 @@ async function fetchAppsScriptPayload(appsScriptUrl: string) {
     }
 
     const raw = await response.json();
-    return normalizePayload(raw);
+    const normalized = normalizeRadarPayload(raw);
+
+    if (!normalized.ok) {
+      throw new Error('Radar retornou ok=false.');
+    }
+
+    return normalized;
   } finally {
     clearTimeout(timer);
   }
 }
 
+function normalizeRadarPayload(raw: unknown): RadarPayload {
+  if (!isRecord(raw)) return MOCK_PAYLOAD;
+
+  const summary = isRecord(raw.summary) ? raw.summary : {};
+  const comparisons = isRecord(raw.comparisons) ? raw.comparisons : {};
+  const yesterday = isRecord(comparisons.yesterday) ? comparisons.yesterday : {};
+  const sevenDayAverage = isRecord(comparisons.sevenDayAverage) ? comparisons.sevenDayAverage : {};
+  const rhythm = isRecord(raw.rhythm) ? raw.rhythm : {};
+  const aiReading = isRecord(raw.aiReading) ? raw.aiReading : {};
+
+  return {
+    ok: Boolean(raw.ok ?? true),
+    source: String(raw.source ?? 'apps-script'),
+    version: String(raw.version ?? 'RADAR'),
+    updatedAt: String(raw.updatedAt ?? currentHourLabel()),
+    date: String(raw.date ?? raw.dateLabel ?? new Intl.DateTimeFormat('pt-BR').format(new Date())),
+    cache: Boolean(raw.cache ?? false),
+    summary: {
+      contractsToday: pickNumber(summary, ['contractsToday', 'contracts', 'contratos'], 0),
+      productionToday: pickNumber(summary, ['productionToday', 'production', 'producao'], 0),
+      productionTodayFormatted: pickString(summary, ['productionTodayFormatted', 'productionFormatted', 'production', 'producao'], 'R$ 0,00'),
+      averageTicket: pickNumber(summary, ['averageTicket', 'ticketMedio'], 0),
+      averageTicketFormatted: pickString(summary, ['averageTicketFormatted', 'averageTicket', 'ticketMedio'], 'R$ 0,00'),
+      activeStores: pickNumber(summary, ['activeStores', 'lojasComProducao'], 0),
+      totalStores: pickNumber(summary, ['totalStores', 'lojasTotal'], 0),
+      zeroStores: pickNumber(summary, ['zeroStores', 'lojasZeradas'], 0),
+      projection: pickNumber(summary, ['projection', 'projecao'], 0),
+      projectionFormatted: pickString(summary, ['projectionFormatted', 'projection', 'projecao'], 'R$ 0,00'),
+      goalPercent: pickNumber(summary, ['goalPercent', 'percentualMeta'], 0)
+    },
+    comparisons: {
+      yesterday: {
+        contracts: pickNumber(yesterday, ['contracts'], 0),
+        production: pickNumber(yesterday, ['production'], 0),
+        productionFormatted: pickString(yesterday, ['productionFormatted'], 'R$ 0,00'),
+        productionDeltaPercent: pickNumber(yesterday, ['productionDeltaPercent'], 0)
+      },
+      sevenDayAverage: {
+        contractsAverage: pickNumber(sevenDayAverage, ['contractsAverage'], 0),
+        productionAverage: pickNumber(sevenDayAverage, ['productionAverage'], 0),
+        productionAverageFormatted: pickString(sevenDayAverage, ['productionAverageFormatted'], 'R$ 0,00'),
+        productionDeltaPercent: pickNumber(sevenDayAverage, ['productionDeltaPercent'], 0)
+      }
+    },
+    rhythm: {
+      label: pickString(rhythm, ['label', 'rotulo'], 'EM OBSERVAÇÃO'),
+      description: pickString(rhythm, ['description', 'descricao'], ''),
+      percent: pickNumber(rhythm, ['percent', 'percentual'], 0),
+      tone: pickTone(rhythm, 'neutral')
+    },
+    hourlyEvolution: normalizeHourlyRows(raw.hourlyEvolution),
+    topStores: normalizeStoreRows(raw.topStores),
+    topConsultants: normalizeConsultantRows(raw.topConsultants),
+    regionalPerformance: normalizeRegionalRows(raw.regionalPerformance),
+    alerts: normalizeAlerts(raw.alerts),
+    aiReading: {
+      generatedAt: pickString(aiReading, ['generatedAt', 'geradoEm'], currentHourLabel()),
+      text: pickString(aiReading, ['text', 'texto'], 'Leitura gerencial ainda indisponível.'),
+      status: String(aiReading.status ?? 'FALLBACK')
+    },
+    ticker: Array.isArray(raw.ticker) ? raw.ticker.map(String) : []
+  };
+}
+
+function normalizeStoreRows(value: unknown): StoreRow[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item, index) => {
+    const row = isRecord(item) ? item : {};
+    return {
+      position: pickNumber(row, ['position'], index + 1),
+      name: pickString(row, ['name', 'loja'], 'Loja sem nome'),
+      regional: pickString(row, ['regional'], ''),
+      contracts: pickNumber(row, ['contracts', 'contratos'], 0),
+      production: pickNumber(row, ['production', 'producao'], 0),
+      averageTicket: pickNumber(row, ['averageTicket', 'ticketMedio'], 0),
+      productionFormatted: pickString(row, ['productionFormatted', 'value', 'producao'], 'R$ 0,00'),
+      averageTicketFormatted: pickString(row, ['averageTicketFormatted', 'averageTicket'], 'R$ 0,00')
+    };
+  });
+}
+
+function normalizeConsultantRows(value: unknown): ConsultantRow[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item, index) => {
+    const row = isRecord(item) ? item : {};
+    return {
+      position: pickNumber(row, ['position'], index + 1),
+      name: pickString(row, ['name', 'consultor'], 'Consultor sem nome'),
+      store: pickString(row, ['store', 'loja'], ''),
+      regional: pickString(row, ['regional'], ''),
+      contracts: pickNumber(row, ['contracts', 'contratos'], 0),
+      production: pickNumber(row, ['production', 'producao'], 0),
+      averageTicket: pickNumber(row, ['averageTicket', 'ticketMedio'], 0),
+      productionFormatted: pickString(row, ['productionFormatted', 'value', 'producao'], 'R$ 0,00'),
+      averageTicketFormatted: pickString(row, ['averageTicketFormatted', 'averageTicket'], 'R$ 0,00')
+    };
+  });
+}
+
+function normalizeRegionalRows(value: unknown): RegionalRow[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item) => {
+    const row = isRecord(item) ? item : {};
+    return {
+      name: pickString(row, ['name', 'regional'], 'Regional'),
+      contracts: pickNumber(row, ['contracts', 'contratos'], 0),
+      production: pickNumber(row, ['production', 'producao'], 0),
+      productionFormatted: pickString(row, ['productionFormatted', 'production', 'producao'], 'R$ 0,00'),
+      averageTicket: pickNumber(row, ['averageTicket', 'ticketMedio'], 0),
+      averageTicketFormatted: pickString(row, ['averageTicketFormatted', 'averageTicket'], 'R$ 0,00'),
+      activeStores: pickNumber(row, ['activeStores', 'lojasComProducao'], 0),
+      totalStores: pickNumber(row, ['totalStores', 'lojasTotal'], 0),
+      zeroStores: pickNumber(row, ['zeroStores', 'lojasZeradas'], 0)
+    };
+  });
+}
+
+function normalizeHourlyRows(value: unknown): HourlyRow[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item) => {
+    const row = isRecord(item) ? item : {};
+    return {
+      hour: pickString(row, ['hour', 'hora'], ''),
+      contracts: pickNumber(row, ['contracts', 'contratos'], 0),
+      production: pickNumber(row, ['production', 'producao'], 0),
+      productionFormatted: pickString(row, ['productionFormatted', 'producao'], 'R$ 0,00'),
+      accumulatedContracts: pickNumber(row, ['accumulatedContracts'], 0),
+      accumulatedProduction: pickNumber(row, ['accumulatedProduction'], 0),
+      accumulatedProductionFormatted: pickString(row, ['accumulatedProductionFormatted'], 'R$ 0,00')
+    };
+  });
+}
+
+function normalizeAlerts(value: unknown): AlertRow[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item) => {
+    const row = isRecord(item) ? item : {};
+    const level = String(row.level ?? 'info').toLowerCase();
+    return {
+      level: level === 'good' || level === 'attention' || level === 'critical' || level === 'info' ? level : 'info',
+      title: pickString(row, ['title', 'titulo'], 'Alerta'),
+      description: pickString(row, ['description', 'descricao'], '')
+    };
+  });
+}
+
 function jsonCached(payload: unknown) {
   return NextResponse.json(payload, {
     headers: {
-      'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
-      'CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
-      'Vercel-CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300'
+      'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120',
+      'CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120',
+      'Vercel-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120'
     }
   });
 }
@@ -277,7 +471,7 @@ function jsonNoStore(payload: unknown) {
   });
 }
 
-function withDiagnostics(payload: ProductionPayload, cache: 'hit' | 'stale' | 'miss' | 'mock', startedAt: number, warning?: string): ProductionPayload {
+function withDiagnostics(payload: RadarPayload, cache: CacheState, startedAt: number, warning?: string): RadarPayload {
   return {
     ...payload,
     diagnostics: {
@@ -287,52 +481,6 @@ function withDiagnostics(payload: ProductionPayload, cache: 'hit' | 'stale' | 'm
       warning
     }
   };
-}
-
-function normalizePayload(raw: unknown): ProductionPayload {
-  if (!isRecord(raw)) return MOCK_PAYLOAD;
-
-  const summary = isRecord(raw.summary) ? raw.summary : {};
-  const aiReading = isRecord(raw.aiReading) ? raw.aiReading : {};
-  const rhythm = isRecord(raw.rhythm) ? raw.rhythm : {};
-
-  return {
-    ok: Boolean(raw.ok ?? true),
-    source: 'apps-script',
-    updatedAt: String(raw.updatedAt ?? currentHourLabel()),
-    dateLabel: String(raw.dateLabel ?? 'HOJE'),
-    summary: {
-      contracts: pickNumber(summary, ['contracts', 'contratos'], MOCK_PAYLOAD.summary.contracts),
-      production: pickString(summary, ['production', 'producao'], MOCK_PAYLOAD.summary.production),
-      averageTicket: pickString(summary, ['averageTicket', 'ticketMedio'], MOCK_PAYLOAD.summary.averageTicket),
-      activeStores: pickNumber(summary, ['activeStores', 'lojasComProducao'], MOCK_PAYLOAD.summary.activeStores),
-      zeroStores: pickNumber(summary, ['zeroStores', 'lojasZeradas'], MOCK_PAYLOAD.summary.zeroStores),
-      projection: pickString(summary, ['projection', 'projecao'], MOCK_PAYLOAD.summary.projection),
-      goalPercent: pickNumber(summary, ['goalPercent', 'percentualMeta'], MOCK_PAYLOAD.summary.goalPercent)
-    },
-    deltas: isRecord(raw.deltas) ? (raw.deltas as ProductionPayload['deltas']) : MOCK_PAYLOAD.deltas,
-    rhythm: {
-      label: pickString(rhythm, ['label', 'rotulo'], MOCK_PAYLOAD.rhythm.label),
-      description: pickString(rhythm, ['description', 'descricao'], MOCK_PAYLOAD.rhythm.description),
-      percent: pickNumber(rhythm, ['percent', 'percentual'], MOCK_PAYLOAD.rhythm.percent),
-      tone: pickTone(rhythm, MOCK_PAYLOAD.rhythm.tone)
-    },
-    aiReading: {
-      generatedAt: pickString(aiReading, ['generatedAt', 'geradoEm'], currentHourLabel()),
-      text: pickString(aiReading, ['text', 'texto'], MOCK_PAYLOAD.aiReading.text),
-      status: pickAiStatus(aiReading, MOCK_PAYLOAD.aiReading.status)
-    },
-    topStores: normalizeArray(raw.topStores, MOCK_PAYLOAD.topStores) as StoreRow[],
-    movers: normalizeArray(raw.movers, MOCK_PAYLOAD.movers) as MoverRow[],
-    zeroStoresList: Array.isArray(raw.zeroStoresList) ? raw.zeroStoresList.map(String) : MOCK_PAYLOAD.zeroStoresList,
-    regionalPerformance: normalizeArray(raw.regionalPerformance, MOCK_PAYLOAD.regionalPerformance) as RegionalRow[],
-    alerts: normalizeArray(raw.alerts, MOCK_PAYLOAD.alerts) as AlertRow[],
-    ticker: Array.isArray(raw.ticker) ? raw.ticker.map(String) : MOCK_PAYLOAD.ticker
-  };
-}
-
-function normalizeArray(value: unknown, fallback: unknown[]) {
-  return Array.isArray(value) && value.length ? value : fallback;
 }
 
 function pickString(source: AnyRecord, keys: string[], fallback: string) {
@@ -348,22 +496,19 @@ function pickNumber(source: AnyRecord, keys: string[], fallback: number) {
     const value = source[key];
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string') {
-      const parsed = Number(value.replace(',', '.').replace(/[^0-9.-]/g, ''));
+      const normalized = value.includes(',')
+        ? value.replace(/\./g, '').replace(',', '.')
+        : value;
+      const parsed = Number(normalized.replace(/[^0-9.-]/g, ''));
       if (Number.isFinite(parsed)) return parsed;
     }
   }
   return fallback;
 }
 
-function pickTone(source: AnyRecord, fallback: 'positive' | 'negative' | 'neutral') {
+function pickTone(source: AnyRecord, fallback: Tone): Tone {
   const value = String(source.tone ?? source.tom ?? '').toLowerCase();
   if (value === 'positive' || value === 'negative' || value === 'neutral') return value;
-  return fallback;
-}
-
-function pickAiStatus(source: AnyRecord, fallback: AiReading['status']) {
-  const value = String(source.status ?? '').toUpperCase();
-  if (value === 'OK' || value === 'CACHE' || value === 'FALLBACK' || value === 'ERROR') return value;
   return fallback;
 }
 
