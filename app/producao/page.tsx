@@ -1,19 +1,18 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 30000);
 const AI_POLL_MS = Number(process.env.NEXT_PUBLIC_AI_POLL_MS ?? 300000);
 
 type Value = number | string | null | undefined;
 type Summary = { contractsToday?: number; productionTodayFormatted?: string; averageTicketFormatted?: string; activeStores?: number; totalStores?: number; zeroStores?: number };
-type Goal = { dailyGoalFormatted?: string; dailyGapFormatted?: string; dailyPercent?: Value; projectionFormatted?: string; projectionGapFormatted?: string };
-type Rhythm = { label?: string; tone?: string; percent?: Value; description?: string };
+type Goal = { dailyGoalFormatted?: string; dailyGapFormatted?: string; dailyPercent?: Value };
+type Rhythm = { label?: string; percent?: Value; description?: string };
 type Comparison = { labelContracts?: string; labelProduction?: string };
 type Store = { position?: number; name?: string; responsible?: string; contracts?: number; productionFormatted?: string; goalDailyFormatted?: string; goalPercent?: Value; goalGapFormatted?: string };
-type Responsible = { name?: string; contractsToday?: number; productionTodayFormatted?: string; dailyGoalFormatted?: string; dailyGapFormatted?: string; dailyPercent?: Value; monthGoalFormatted?: string; projectionGapFormatted?: string; priority?: string; diagnosis?: string };
-type ZeroStore = { name?: string; responsible?: string; dailyGoalFormatted?: string; monthGoalFormatted?: string };
-type Consultant = { name?: string; store?: string; contracts?: number; productionFormatted?: string };
+type Responsible = { name?: string; contractsToday?: number; productionTodayFormatted?: string; dailyGoalFormatted?: string; dailyGapFormatted?: string; dailyPercent?: Value; monthGoalFormatted?: string; diagnosis?: string; priority?: string };
+type ZeroStore = { name?: string; responsible?: string; dailyGoalFormatted?: string };
 type AiReading = { status?: string; generatedAt?: string; text?: string; priorityResponsible?: string };
 
 type Payload = {
@@ -27,7 +26,6 @@ type Payload = {
   comparisons?: { yesterday?: Comparison; sevenDayAverage?: Comparison };
   topStores?: Store[];
   topStoresRankingMode?: string;
-  topConsultants?: Consultant[];
   responsiblePerformance?: Responsible[];
   regionalPerformance?: Responsible[];
   zeroStores?: ZeroStore[];
@@ -38,7 +36,7 @@ type Payload = {
   diagnostics?: { warning?: string };
 };
 
-type AiPayload = { ok?: boolean; version?: string; ai?: AiReading };
+type AiPayload = { ok?: boolean; ai?: AiReading };
 
 export default function ProducaoPage() {
   const [data, setData] = useState<Payload | null>(null);
@@ -46,10 +44,11 @@ export default function ProducaoPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [aiError, setAiError] = useState('');
-  const now = useClock();
+  const panelTime = useClock();
 
   useEffect(() => {
     let alive = true;
+
     async function load() {
       try {
         const response = await fetch('/api/producao?refresh=1', { cache: 'no-store' });
@@ -64,6 +63,7 @@ export default function ProducaoPage() {
         if (alive) setLoading(false);
       }
     }
+
     load();
     const id = window.setInterval(load, POLL_MS);
     return () => { alive = false; window.clearInterval(id); };
@@ -71,6 +71,7 @@ export default function ProducaoPage() {
 
   useEffect(() => {
     let alive = true;
+
     async function loadAi() {
       try {
         const response = await fetch('/api/producao?mode=ai&refresh=1', { cache: 'no-store' });
@@ -83,12 +84,13 @@ export default function ProducaoPage() {
         if (alive) setAiError('Falha ao acionar DeepSeek.');
       }
     }
+
     loadAi();
     const id = window.setInterval(loadAi, AI_POLL_MS);
     return () => { alive = false; window.clearInterval(id); };
   }, []);
 
-  const view = useMemo(() => buildView(data, ai, aiError, now), [data, ai, aiError, now]);
+  const view = useMemo(() => buildView(data, ai, aiError, panelTime), [data, ai, aiError, panelTime]);
 
   if (loading && !data) return <Shell><Loader text="Carregando painel de gestão..." /></Shell>;
   if (!data) return <Shell><Loader text={error || 'Não foi possível carregar os dados.'} /></Shell>;
@@ -110,16 +112,16 @@ export default function ProducaoPage() {
         <Kpi title="Lojas" value={view.storesActive} detail={`${view.zeroCount} zeradas`} danger={view.zeroCountNumber > 0} />
       </section>
 
-      <section className="grid">
-        <Panel title="Quem está batendo meta" className="ranking">
+      <section className="mainGrid">
+        <Panel title="Quem está batendo meta" className="rankingPanel">
           <div className="subline"><span>{view.rankingMode}</span><b>{view.goalPercentLabel}</b></div>
           {view.leader ? <Leader store={view.leader} /> : <Empty text="Sem loja líder." />}
           <div className="storeList">{view.otherStores.map((store) => <StoreLine key={`${store.position}-${store.name}`} store={store} />)}</div>
         </Panel>
 
-        <div className="side">
-          <Panel title="Quem precisa de ação" className="coordPanel">
-            <div className="coordList">{view.responsibles.map((row) => <CoordLine key={row.name} row={row} />)}</div>
+        <div className="rightCol">
+          <Panel title="Quem precisa de ação" className="actionPanel">
+            <ActionTable rows={view.actions} />
           </Panel>
 
           <Panel title="Inteligência comercial" className="intelPanel">
@@ -134,16 +136,14 @@ export default function ProducaoPage() {
   );
 }
 
-function buildView(data: Payload | null, ai: AiReading | null, aiError: string, now: string) {
+function buildView(data: Payload | null, ai: AiReading | null, aiError: string, panelTime: string) {
   const summary = data?.summary || {};
   const goal = data?.goal || {};
   const rhythm = data?.rhythm || {};
   const comparisons = data?.comparisons || {};
   const stores = Array.isArray(data?.topStores) ? data!.topStores!.slice(0, 6) : [];
-  const responsibles = (Array.isArray(data?.responsiblePerformance) ? data!.responsiblePerformance! : data?.regionalPerformance || [])
-    .slice()
-    .sort((a, b) => (num(a.dailyPercent) ?? -1) - (num(b.dailyPercent) ?? -1));
-  const zeroStores = Array.isArray(data?.zeroStores) ? data!.zeroStores!.slice(0, 7) : [];
+  const responsibles = Array.isArray(data?.responsiblePerformance) ? data!.responsiblePerformance! : data?.regionalPerformance || [];
+  const zeroStores = Array.isArray(data?.zeroStores) ? data!.zeroStores!.slice(0, 6) : [];
   const zeroCount = Number(summary.zeroStores ?? zeroStores.length ?? 0);
   const dailyPercent = num(goal.dailyPercent);
   const warning = data?.diagnostics?.warning || data?.warning || (data?.missingData?.length ? `Dados pendentes: ${data.missingData.join(', ')}` : '');
@@ -171,15 +171,28 @@ function buildView(data: Payload | null, ai: AiReading | null, aiError: string, 
     goalPercentLabel: dailyPercent !== null ? `${dailyPercent}% da meta do dia` : 'Meta do dia ausente',
     leader: stores[0] || null,
     otherStores: stores.slice(1),
-    responsibles,
+    actions: responsibles.slice().sort(actionSort).slice(0, 5),
     zeroStores,
     ai,
     aiError,
     warning,
     ticker,
-    panelTime: now,
+    panelTime,
     loadTime: normalizeLoadHour(data?.updatedAt || '--h--')
   };
+}
+
+function actionSort(a: Responsible, b: Responsible) {
+  return actionScore(a) - actionScore(b);
+}
+
+function actionScore(row: Responsible) {
+  const percent = num(row.dailyPercent);
+  const production = row.productionTodayFormatted && row.productionTodayFormatted !== 'R$ 0,00';
+  if (percent !== null && percent < 100) return percent;
+  if (percent === null && production) return 100.5;
+  if (percent !== null) return 200 + percent;
+  return 999;
 }
 
 function useClock() {
@@ -202,9 +215,9 @@ function normalizeLoadHour(value: string) {
   return `${String(hour).padStart(2, '0')}h${match[2]}`;
 }
 
-function Shell({ children }: { children: React.ReactNode }) { return <main className="screen"><Style />{children}</main>; }
+function Shell({ children }: { children: ReactNode }) { return <main className="screen"><Style />{children}</main>; }
 function Loader({ text }: { text: string }) { return <div className="loader"><Logo /><h1>RADAR DE PRODUÇÃO</h1><p>{text}</p></div>; }
-function Panel({ title, children, className = '' }: { title: string; children: React.ReactNode; className?: string }) { return <section className={`panel ${className}`}><h2>{title}</h2>{children}</section>; }
+function Panel({ title, children, className = '' }: { title: string; children: ReactNode; className?: string }) { return <section className={`panel ${className}`}><h2>{title}</h2>{children}</section>; }
 function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }
 
 function Kpi({ title, value, detail, accent, danger, good }: { title: string; value: string; detail: string; accent?: boolean; danger?: boolean; good?: boolean }) {
@@ -218,14 +231,17 @@ function Leader({ store }: { store: Store }) {
 function StoreLine({ store }: { store: Store }) {
   const percent = num(store.goalPercent);
   const width = percent === null ? 0 : Math.max(5, Math.min(100, percent));
-  return <div className="storeRow"><em>{store.position ?? '-'}</em><div><b>{store.name || '-'}</b><small>{store.responsible || 'Sem coordenadora'}</small></div><span>{store.contracts ?? 0} ct</span><strong>{store.productionFormatted || 'R$ 0,00'}</strong><div className="goalbar"><i style={{ width: `${width}%` }} /><small>{fmtPercent(store.goalPercent)} • meta {store.goalDailyFormatted || 'DADO AUSENTE'}</small></div></div>;
+  return <div className="storeRow"><em>{store.position ?? '-'}</em><div><b>{store.name || '-'}</b><small>{store.responsible || 'Sem coordenadora'}</small></div><span>{store.contracts ?? 0} ct</span><strong>{store.productionFormatted || 'R$ 0,00'}</strong><div className="goalbar"><i style={{ width: `${width}%` }} /><small>{fmtPercent(store.goalPercent)} • {store.goalDailyFormatted || 'DADO AUSENTE'}</small></div></div>;
 }
 
-function CoordLine({ row }: { row: Responsible }) {
+function ActionTable({ rows }: { rows: Responsible[] }) {
+  return <div className="actionTable">{rows.map((row) => <ActionRow key={row.name} row={row} />)}</div>;
+}
+
+function ActionRow({ row }: { row: Responsible }) {
   const percent = num(row.dailyPercent);
-  const width = percent === null ? 0 : Math.max(5, Math.min(100, percent));
-  const tone = percent === null ? 'neutral' : percent >= 100 ? 'good' : percent >= 90 ? 'attention' : 'critical';
-  return <div className={`coord ${tone}`}><div><b>{row.name || '-'}</b><strong>{fmtPercent(row.dailyPercent)}</strong></div><span>{row.contractsToday ?? 0} ct • {row.productionTodayFormatted || 'R$ 0,00'}</span><div className="bar"><i style={{ width: `${width}%` }} /></div><small>Meta dia: {row.dailyGoalFormatted || 'DADO AUSENTE'} • Gap: {row.dailyGapFormatted || 'DADO AUSENTE'}</small><p>{row.diagnosis || row.priority || 'Sem diagnóstico.'}</p></div>;
+  const tone = percent === null ? 'unknown' : percent >= 100 ? 'good' : percent >= 90 ? 'attention' : 'critical';
+  return <div className={`actionRow ${tone}`}><b>{row.name || '-'}</b><span>{row.productionTodayFormatted || 'R$ 0,00'}</span><strong>{fmtPercent(row.dailyPercent)}</strong><small>{row.dailyGapFormatted || 'DADO AUSENTE'}</small></div>;
 }
 
 function DeepSeekCard({ ai, fallback, error }: { ai: AiReading | null; fallback?: AiReading; error?: string }) {
@@ -246,6 +262,6 @@ function Logo() { return <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M3
 
 function Style() {
   return <style jsx global>{`
-    *{box-sizing:border-box}html,body{margin:0;background:#020812;overflow:hidden}.screen{width:100vw;height:100vh;overflow:hidden;color:#fff;font-family:Inter,Arial,sans-serif;background:radial-gradient(circle at 8% 0%,rgba(255,193,43,.14),transparent 30%),linear-gradient(135deg,#020812,#06182b 55%,#020812)}.screen:before{content:'';position:absolute;inset:0;opacity:.14;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:30px 30px}.topbar,.kpis,.grid,footer,.warning{position:relative;z-index:2}.topbar{height:92px;padding:12px 18px;display:grid;grid-template-columns:340px 1fr 210px;gap:18px;align-items:center;border-bottom:1px solid rgba(255,255,255,.1);background:rgba(2,8,18,.84)}.brand{display:flex;gap:13px;align-items:center}.brand svg{width:46px;height:46px;padding:9px;border:1px solid rgba(255,193,43,.3);border-radius:15px;background:rgba(255,193,43,.07)}svg path{fill:none;stroke:#ffc12b;stroke-width:4;stroke-linejoin:round}.brand b{display:block;font-size:22px;font-weight:1000}.brand span,.headline span{display:block;color:#ffc12b;font-size:11px;font-weight:900;letter-spacing:.14em}.headline{text-align:center;min-width:0}.headline strong{display:block;margin-top:3px;font-size:30px;font-style:italic;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.headline small{display:block;margin-top:6px;color:rgba(255,255,255,.62);font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.timebox{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:9px 10px;border-radius:16px;border:1px solid rgba(255,193,43,.24);background:rgba(255,193,43,.07)}.timebox div{min-width:0}.timebox span{display:block;color:rgba(255,255,255,.58);font-size:9px;font-weight:900}.timebox b{display:block;color:#ffc12b;font-size:26px;line-height:1}.timebox em{grid-column:1/3;color:rgba(255,255,255,.58);font-size:10px;text-align:right;font-style:normal}.warning{height:28px;padding:6px 18px;background:rgba(255,91,91,.16);color:#ffd4d4;font-size:12px;font-weight:900}.kpis{height:104px;padding:12px 18px 0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.kpi,.panel{border:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(9,23,39,.96),rgba(5,15,27,.96));box-shadow:0 18px 38px rgba(0,0,0,.25)}.kpi{position:relative;overflow:hidden;border-radius:18px;padding:13px 16px}.kpi:before{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:#2f92ff}.kpi.accent:before{background:#ffc12b}.kpi.good:before{background:#59e49b}.kpi.danger:before{background:#ff5f6d}.kpi span{display:block;color:rgba(255,255,255,.66);font-size:12px;font-weight:900;text-transform:uppercase}.kpi b{display:block;margin-top:5px;font-size:29px;line-height:1;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpi.accent b{color:#ffc12b}.kpi.good b{color:#62e8a2}.kpi.danger b{color:#ff7777}.kpi small{display:block;margin-top:8px;color:rgba(255,255,255,.62);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.grid{height:calc(100vh - 240px);padding:12px 18px 10px;display:grid;grid-template-columns:58% 42%;gap:14px}.warning~.kpis+.grid{height:calc(100vh - 268px)}.side{display:grid;grid-template-rows:49% 51%;gap:14px;min-height:0}.panel{border-radius:20px;padding:14px 16px;overflow:hidden;min-height:0}.panel h2{margin:0 0 9px;color:#ffc12b;font-size:20px;line-height:1;font-weight:1000;text-transform:uppercase}.subline{display:flex;justify-content:space-between;gap:12px;margin-bottom:9px;color:rgba(255,255,255,.62);font-size:12px;font-weight:900}.subline b{color:#ffc12b}.leader{height:98px;padding:14px;border-radius:17px;border:1px solid rgba(255,193,43,.2);background:rgba(255,193,43,.07);display:grid;grid-template-columns:50px 1fr 132px 70px;gap:12px;align-items:center}.leader>em{width:48px;height:48px;display:grid;place-items:center;border-radius:15px;background:#ffc12b;color:#07111c;font-size:27px;font-style:normal;font-weight:1000}.leader div{min-width:0}.leader span{color:#ffc12b;font-size:10px;font-weight:1000;text-transform:uppercase}.leader div b{display:block;margin-top:5px;font-size:26px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.leader small{grid-column:2/5;color:rgba(255,255,255,.66);font-size:11px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.leader strong{color:#ffc12b;font-size:16px;text-align:right}.leader i{font-style:normal;font-size:22px;font-weight:1000;text-align:right}.storeList{display:grid;gap:7px;margin-top:9px}.storeRow{display:grid;grid-template-columns:32px minmax(0,1fr) 54px 112px 190px;gap:8px;align-items:center;padding:7px 10px;border-radius:13px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}.storeRow em{width:28px;height:28px;display:grid;place-items:center;border-radius:10px;background:rgba(255,193,43,.16);color:#ffc12b;font-style:normal;font-weight:1000}.storeRow b{display:block;font-size:15px;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.storeRow small{display:block;margin-top:3px;color:rgba(255,255,255,.58);font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.storeRow span{color:#65e29f;font-size:13px;font-weight:1000;text-align:right}.storeRow strong{color:#ffc12b;font-size:14px;text-align:right}.goalbar{position:relative;padding-top:13px}.goalbar:before{content:'';position:absolute;top:2px;left:0;right:0;height:8px;border-radius:999px;background:rgba(255,255,255,.09)}.goalbar i{position:absolute;top:2px;left:0;height:8px;border-radius:999px;background:linear-gradient(90deg,#59e49b,#ffd052)}.coordList{display:grid;gap:7px}.coord{padding:8px 10px;border-radius:13px;background:rgba(255,255,255,.045);border-left:4px solid #7aa9ff}.coord.good{border-left-color:#59e49b}.coord.attention{border-left-color:#ffd052}.coord.critical{border-left-color:#ff6b6b}.coord div{display:flex;justify-content:space-between;gap:8px}.coord b{font-size:15px}.coord strong{color:#ffc12b;font-size:20px}.coord.good strong{color:#62e8a2}.coord span{display:block;color:rgba(255,255,255,.62);font-size:10px;font-weight:900}.bar{height:7px;margin:5px 0;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}.bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#ff6b6b,#ffc12b,#62e8a2)}.coord small{display:block;color:rgba(255,255,255,.68);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.coord p{margin:4px 0 0;color:rgba(255,255,255,.78);font-size:10px;line-height:1.18;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.intelPanel{display:grid;grid-template-rows:auto 1fr 1fr;gap:8px}.deepseek,.zeros{min-height:0;border-radius:14px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:10px;overflow:hidden}.deepseek.active{border-color:rgba(89,228,155,.35)}.deepseek div,.zeros>div{display:flex;align-items:center;justify-content:space-between;gap:8px}.deepseek span,.zeros span{color:#ffc12b;font-size:10px;font-weight:1000;text-transform:uppercase}.deepseek b{font-size:15px}.deepseek em{color:rgba(255,255,255,.54);font-size:10px;font-style:normal;font-weight:900}.deepseek p{margin:8px 0 0;color:rgba(255,255,255,.88);font-size:12px;line-height:1.25;max-height:72px;overflow:hidden}.deepseek small{display:block;margin-top:5px;color:#ffb0b0;font-size:10px}.zeros>div b{color:#ff7474;font-size:24px}.zeros section{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-top:7px}.zeros p{margin:0;padding:6px 7px;border-radius:9px;background:rgba(255,255,255,.045);display:grid;grid-template-columns:minmax(0,1fr) 60px;gap:3px 6px}.zeros strong{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.zeros p span{color:rgba(255,255,255,.58);font-size:9px}.zeros p em{grid-column:1/3;color:#ffc12b;font-size:9px;font-style:normal;font-weight:900}.empty{height:100%;display:grid;place-items:center;color:rgba(255,255,255,.46);font-weight:900}footer{height:44px;display:grid;grid-template-columns:110px 1fr 130px;align-items:center;gap:12px;padding:0 18px;border-top:1px solid rgba(255,255,255,.1);background:rgba(2,8,18,.86)}footer b{color:#ffc12b}footer span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(255,255,255,.88);font-size:13px;font-weight:900}footer em{text-align:right;color:rgba(255,255,255,.5);font-style:normal;font-size:10px;font-weight:900}.loader{position:relative;z-index:2;margin:23vh auto 0;width:520px;padding:38px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(9,23,39,.96);text-align:center}.loader svg{width:42px;height:42px}.loader h1{margin:16px 0 8px;font-size:34px}.loader p{margin:0;color:rgba(255,255,255,.7)}
+    *{box-sizing:border-box}html,body{margin:0;background:#020812;overflow:hidden}.screen{width:100vw;height:100vh;overflow:hidden;color:#fff;font-family:Inter,Arial,sans-serif;background:radial-gradient(circle at 8% 0%,rgba(255,193,43,.14),transparent 30%),linear-gradient(135deg,#020812,#06182b 55%,#020812)}.screen:before{content:'';position:absolute;inset:0;opacity:.12;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:30px 30px}.topbar,.kpis,.mainGrid,footer,.warning{position:relative;z-index:2}.topbar{height:86px;padding:12px 18px;display:grid;grid-template-columns:330px 1fr 210px;gap:18px;align-items:center;border-bottom:1px solid rgba(255,255,255,.1);background:rgba(2,8,18,.84)}.brand{display:flex;gap:13px;align-items:center}.brand svg{width:46px;height:46px;padding:9px;border:1px solid rgba(255,193,43,.3);border-radius:15px;background:rgba(255,193,43,.07)}svg path{fill:none;stroke:#ffc12b;stroke-width:4;stroke-linejoin:round}.brand b{display:block;font-size:22px;font-weight:1000}.brand span,.headline span{display:block;color:#ffc12b;font-size:11px;font-weight:900;letter-spacing:.14em}.headline{text-align:center;min-width:0}.headline strong{display:block;margin-top:3px;font-size:30px;font-style:italic;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.headline small{display:block;margin-top:6px;color:rgba(255,255,255,.62);font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.timebox{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:9px 10px;border-radius:16px;border:1px solid rgba(255,193,43,.24);background:rgba(255,193,43,.07)}.timebox span{display:block;color:rgba(255,255,255,.58);font-size:9px;font-weight:900}.timebox b{display:block;color:#ffc12b;font-size:25px;line-height:1}.timebox em{grid-column:1/3;color:rgba(255,255,255,.58);font-size:10px;text-align:right;font-style:normal}.warning{height:28px;padding:6px 18px;background:rgba(255,91,91,.16);color:#ffd4d4;font-size:12px;font-weight:900}.kpis{height:100px;padding:11px 18px 0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.kpi,.panel{border:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(9,23,39,.96),rgba(5,15,27,.96));box-shadow:0 16px 34px rgba(0,0,0,.24)}.kpi{position:relative;overflow:hidden;border-radius:18px;padding:12px 16px}.kpi:before{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:#2f92ff}.kpi.accent:before{background:#ffc12b}.kpi.good:before{background:#59e49b}.kpi.danger:before{background:#ff5f6d}.kpi span{display:block;color:rgba(255,255,255,.66);font-size:12px;font-weight:900;text-transform:uppercase}.kpi b{display:block;margin-top:4px;font-size:29px;line-height:1;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpi.accent b{color:#ffc12b}.kpi.good b{color:#62e8a2}.kpi.danger b{color:#ff7777}.kpi small{display:block;margin-top:7px;color:rgba(255,255,255,.62);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mainGrid{height:calc(100vh - 230px);padding:12px 18px 9px;display:grid;grid-template-columns:58% 42%;gap:14px}.warning~.kpis+.mainGrid{height:calc(100vh - 258px)}.rightCol{display:grid;grid-template-rows:42% 58%;gap:14px;min-height:0}.panel{border-radius:20px;padding:14px 16px;overflow:hidden;min-height:0}.panel h2{margin:0 0 8px;color:#ffc12b;font-size:20px;line-height:1;font-weight:1000;text-transform:uppercase}.subline{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px;color:rgba(255,255,255,.62);font-size:12px;font-weight:900}.subline b{color:#ffc12b}.leader{height:92px;padding:13px;border-radius:17px;border:1px solid rgba(255,193,43,.2);background:rgba(255,193,43,.07);display:grid;grid-template-columns:50px 1fr 132px 70px;gap:12px;align-items:center}.leader>em{width:46px;height:46px;display:grid;place-items:center;border-radius:15px;background:#ffc12b;color:#07111c;font-size:26px;font-style:normal;font-weight:1000}.leader div{min-width:0}.leader span{color:#ffc12b;font-size:10px;font-weight:1000;text-transform:uppercase}.leader div b{display:block;margin-top:4px;font-size:25px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.leader small{grid-column:2/5;color:rgba(255,255,255,.66);font-size:11px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.leader strong{color:#ffc12b;font-size:16px;text-align:right}.leader i{font-style:normal;font-size:22px;font-weight:1000;text-align:right}.storeList{display:grid;gap:7px;margin-top:8px}.storeRow{display:grid;grid-template-columns:32px minmax(0,1fr) 54px 112px 180px;gap:8px;align-items:center;padding:7px 10px;border-radius:13px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}.storeRow em{width:28px;height:28px;display:grid;place-items:center;border-radius:10px;background:rgba(255,193,43,.16);color:#ffc12b;font-style:normal;font-weight:1000}.storeRow b{display:block;font-size:15px;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.storeRow small{display:block;margin-top:3px;color:rgba(255,255,255,.58);font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.storeRow span{color:#65e29f;font-size:13px;font-weight:1000;text-align:right}.storeRow strong{color:#ffc12b;font-size:14px;text-align:right}.goalbar{position:relative;padding-top:13px}.goalbar:before{content:'';position:absolute;top:2px;left:0;right:0;height:8px;border-radius:999px;background:rgba(255,255,255,.09)}.goalbar i{position:absolute;top:2px;left:0;height:8px;border-radius:999px;background:linear-gradient(90deg,#59e49b,#ffd052)}.actionPanel{display:grid;grid-template-rows:auto 1fr}.actionTable{display:grid;gap:7px}.actionRow{display:grid;grid-template-columns:minmax(0,1fr) 118px 82px 92px;gap:8px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.045);border-left:4px solid #7aa9ff}.actionRow.critical{border-left-color:#ff6b6b}.actionRow.attention{border-left-color:#ffd052}.actionRow.good{border-left-color:#59e49b}.actionRow.unknown{border-left-color:#7aa9ff}.actionRow b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.actionRow span{color:rgba(255,255,255,.72);font-size:12px;font-weight:900;text-align:right}.actionRow strong{color:#ffc12b;font-size:18px;text-align:right;white-space:nowrap}.actionRow.good strong{color:#62e8a2}.actionRow small{color:rgba(255,255,255,.64);font-size:10px;font-weight:900;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.intelPanel{display:grid;grid-template-rows:auto 1fr 1fr;gap:8px}.deepseek,.zeros{min-height:0;border-radius:14px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:10px;overflow:hidden}.deepseek.active{border-color:rgba(89,228,155,.35)}.deepseek div,.zeros>div{display:flex;align-items:center;justify-content:space-between;gap:8px}.deepseek span,.zeros span{color:#ffc12b;font-size:10px;font-weight:1000;text-transform:uppercase}.deepseek b{font-size:15px}.deepseek em{color:rgba(255,255,255,.54);font-size:10px;font-style:normal;font-weight:900}.deepseek p{margin:8px 0 0;color:rgba(255,255,255,.88);font-size:12px;line-height:1.25;max-height:78px;overflow:hidden}.deepseek small{display:block;margin-top:5px;color:#ffb0b0;font-size:10px}.zeros>div b{color:#ff7474;font-size:24px}.zeros section{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-top:7px}.zeros p{margin:0;padding:6px 7px;border-radius:9px;background:rgba(255,255,255,.045);display:grid;grid-template-columns:minmax(0,1fr) 60px;gap:3px 6px}.zeros strong{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.zeros p span{color:rgba(255,255,255,.58);font-size:9px}.zeros p em{grid-column:1/3;color:#ffc12b;font-size:9px;font-style:normal;font-weight:900}.empty{height:100%;display:grid;place-items:center;color:rgba(255,255,255,.46);font-weight:900}footer{height:44px;display:grid;grid-template-columns:110px 1fr 130px;align-items:center;gap:12px;padding:0 18px;border-top:1px solid rgba(255,255,255,.1);background:rgba(2,8,18,.86)}footer b{color:#ffc12b}footer span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(255,255,255,.88);font-size:13px;font-weight:900}footer em{text-align:right;color:rgba(255,255,255,.5);font-style:normal;font-size:10px;font-weight:900}.loader{position:relative;z-index:2;margin:23vh auto 0;width:520px;padding:38px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(9,23,39,.96);text-align:center}.loader svg{width:42px;height:42px}.loader h1{margin:16px 0 8px;font-size:34px}.loader p{margin:0;color:rgba(255,255,255,.7)}
   `}</style>;
 }
