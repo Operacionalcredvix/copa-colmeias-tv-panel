@@ -1,0 +1,370 @@
+html, body {
+  width: 100%;
+  height: 100%;
+}
+
+.radar-shell {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  grid-template-rows: 58px minmax(0, 1fr) 40px !important;
+  overflow: hidden !important;
+}
+
+.topbar {
+  grid-template-columns: minmax(250px, 300px) minmax(280px, 1fr) auto 100px 34px 34px 34px !important;
+  gap: 6px !important;
+  padding: 0 14px !important;
+  min-width: 0;
+}
+
+.brand,
+.top-title,
+.load,
+.viewport,
+.screen,
+.content-panel,
+.panel-title,
+.section-header,
+.store-heading,
+.two-columns,
+.three-columns,
+.table,
+.trow,
+.thead,
+.footer,
+.footer nav {
+  min-width: 0;
+}
+
+.brand b {
+  font-size: 16px !important;
+  white-space: nowrap;
+}
+
+.brand small,
+.top-title span,
+.load small {
+  white-space: nowrap;
+}
+
+.top-title strong {
+  font-size: 17px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.viewport {
+  padding: 9px 14px 6px !important;
+  overflow: hidden !important;
+}
+
+.screen {
+  gap: 9px !important;
+  overflow: hidden;
+}
+
+.hero {
+  height: 126px !important;
+  grid-template-columns: 195px minmax(0, 1fr) 270px !important;
+  padding: 10px 18px !important;
+}
+
+.hero-copy h1 {
+  font-size: 25px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hero-copy p,
+.hero-copy small {
+  white-space: nowrap;
+}
+
+.hero-copy strong {
+  font-size: 23px !important;
+}
+
+.kpi {
+  height: 76px !important;
+  padding: 9px 13px !important;
+  min-width: 0;
+}
+
+.compact .kpi {
+  height: 66px !important;
+}
+
+.kpi span,
+.panel-title > span,
+.section-header span,
+.hero-copy > span {
+  display: block;
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.kpi b {
+  font-size: clamp(18px, 1.75vw, 24px) !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact .kpi b {
+  font-size: clamp(16px, 1.35vw, 19px) !important;
+}
+
+.kpi small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.two-columns,
+.two-columns.equal {
+  gap: 9px !important;
+}
+
+.content-panel {
+  padding: 11px 13px !important;
+}
+
+.panel-title {
+  height: 42px !important;
+  padding-right: 38px;
+}
+
+.panel-title h2 {
+  font-size: 18px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-title i {
+  top: 15px !important;
+}
+
+.section-header {
+  height: 56px !important;
+  gap: 18px;
+}
+
+.section-header > div {
+  min-width: 280px;
+}
+
+.section-header h1 {
+  font-size: 24px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.section-header p {
+  max-width: 500px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-ranking > div {
+  height: 36px !important;
+  grid-template-columns: 28px minmax(0, 1fr) 62px 96px !important;
+}
+
+.mini-ranking b,
+.store-table .trow > span:first-child b,
+.ranking-table .rank-row > b,
+.ranking-table .rank-row > small,
+.priority b,
+.risk b {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.priority,
+.risk {
+  min-height: 57px !important;
+  padding: 8px !important;
+}
+
+.coord-table .thead,
+.coord-table .trow {
+  grid-template-columns: minmax(170px, 1.35fr) .62fr .62fr .67fr .4fr .62fr minmax(210px, 1.25fr) !important;
+}
+
+.store-table .thead,
+.store-table .trow {
+  grid-template-columns: minmax(270px, 1.8fr) .68fr .68fr .72fr .52fr .62fr !important;
+}
+
+.thead {
+  height: 24px !important;
+}
+
+.trow {
+  min-height: 48px !important;
+  margin: 4px 0 !important;
+  padding: 6px 9px !important;
+}
+
+.trow > span,
+.thead > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-heading {
+  gap: 10px;
+}
+
+.tabs {
+  max-width: 48%;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+.tabs button {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 8px 10px !important;
+}
+
+.rank-head,
+.rank-row {
+  grid-template-columns: 24px minmax(130px, 1.2fr) minmax(95px, .9fr) .58fr .7fr .48fr !important;
+}
+
+.rank-row {
+  height: 46px !important;
+}
+
+.comparison-row {
+  gap: 8px !important;
+}
+
+.compare {
+  height: 67px !important;
+  padding: 9px !important;
+}
+
+.three-columns {
+  grid-template-columns: 1.08fr .9fr .82fr !important;
+  gap: 9px !important;
+}
+
+.executive {
+  height: 54px !important;
+}
+
+.questions {
+  gap: 8px !important;
+}
+
+.questions div {
+  padding: 9px !important;
+}
+
+.footer {
+  grid-template-columns: 64px minmax(0, 1fr) auto 34px 105px !important;
+  gap: 7px !important;
+  padding: 0 14px !important;
+  overflow: hidden;
+}
+
+.footer nav {
+  gap: 3px !important;
+  white-space: nowrap;
+}
+
+.footer nav button {
+  padding: 5px 6px !important;
+  white-space: nowrap;
+}
+
+.footer nav button.active {
+  padding: 7px !important;
+}
+
+.footer > small {
+  white-space: nowrap;
+}
+
+@media (max-width: 1380px) {
+  .topbar {
+    grid-template-columns: 260px minmax(260px, 1fr) auto 92px 32px 32px 32px !important;
+  }
+
+  .brand b {
+    font-size: 15px !important;
+  }
+
+  .hero {
+    grid-template-columns: 180px minmax(0, 1fr) 245px !important;
+  }
+
+  .section-header p {
+    max-width: 420px !important;
+  }
+
+  .footer nav button {
+    font-size: 7px !important;
+  }
+}
+
+@media (max-height: 780px) {
+  .radar-shell {
+    grid-template-rows: 56px minmax(0, 1fr) 38px !important;
+  }
+
+  .viewport {
+    padding-top: 7px !important;
+  }
+
+  .hero {
+    height: 118px !important;
+  }
+
+  .ring {
+    width: 98px !important;
+    height: 98px !important;
+  }
+
+  .kpi {
+    height: 70px !important;
+  }
+
+  .compact .kpi {
+    height: 61px !important;
+  }
+
+  .section-header {
+    height: 51px !important;
+  }
+
+  .panel-title {
+    height: 38px !important;
+  }
+
+  .trow {
+    min-height: 43px !important;
+  }
+
+  .rank-row {
+    height: 42px !important;
+  }
+}
