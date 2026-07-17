@@ -1,0 +1,11 @@
+/* Correcoes focadas no topo do Radar Operacional.
+   Mantem a base/tabela e os cards laterais aprovados. */
+
+.tv {
+  grid-template-rows: clamp(84px, 10.5vh, 102px) clamp(112px, 14vh, 132px) minmax(0, 1fr) clamp(30px, 4vh, 40px) !important;
+}
+
+.tv .topbar {
+  grid-template-columns: minmax(300px, 1fr) minmax(380px, 1.15fr) minmax(210px, .72fr) !important;
+  gap: 20px !important;
+  padding: 8px 20
