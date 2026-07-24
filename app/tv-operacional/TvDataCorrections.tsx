@@ -11,9 +11,10 @@ function parseMoney(value: string | null | undefined) {
 function setStatus(element: Element, label: string, className: 'ok' | 'warn' | 'bad') {
   element.classList.remove('ok', 'warn', 'bad');
   element.classList.add(className);
-  const nodes = Array.from(element.childNodes);
-  const textNode = nodes.find((node) => node.nodeType === Node.TEXT_NODE);
-  if (textNode) textNode.textContent = ` ${label}`;
+
+  const textNode = Array.from(element.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+  const nextText = ` ${label}`;
+  if (textNode && textNode.textContent !== nextText) textNode.textContent = nextText;
 }
 
 function applyCorrections() {
@@ -21,8 +22,8 @@ function applyCorrections() {
   if (!root) return;
 
   const isDaily = root.classList.contains('daily');
-
   const metaValue = root.querySelector('.meta strong');
+
   if (metaValue && (!metaValue.textContent || metaValue.textContent.trim() === '--')) {
     metaValue.textContent = new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'America/Sao_Paulo',
@@ -64,6 +65,7 @@ function applyCorrections() {
     }
 
     eligible += 1;
+
     if (paid >= daily) {
       delivered += 1;
       setStatus(status, 'ENTREGUE', 'ok');
@@ -78,6 +80,7 @@ function applyCorrections() {
   const splitMetric = root.querySelector('.insightMetric.split');
   const splitLabel = splitMetric?.querySelector('strong');
   const splitPercent = splitMetric?.querySelector('b');
+
   if (splitLabel) splitLabel.textContent = `${delivered} de ${eligible} lojas entregues`;
   if (splitPercent) splitPercent.textContent = `${percentage}%`;
 }
@@ -85,15 +88,8 @@ function applyCorrections() {
 export default function TvDataCorrections() {
   useEffect(() => {
     applyCorrections();
-
-    const observer = new MutationObserver(() => applyCorrections());
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-
-    const timer = window.setInterval(applyCorrections, 1000);
-    return () => {
-      observer.disconnect();
-      window.clearInterval(timer);
-    };
+    const timer = window.setInterval(applyCorrections, 750);
+    return () => window.clearInterval(timer);
   }, []);
 
   return null;
