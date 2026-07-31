@@ -3,150 +3,132 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import styles from './page.module.css';
 
-const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 30000);
-const AI_POLL_MS = Number(process.env.NEXT_PUBLIC_AI_POLL_MS ?? 300000);
+const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS || 30000);
+const COORDINATOR_ORDER = ['DAIELLY', 'MARIA FERNANDA', 'MARIELEN'];
 
-type Value = number | string | null | undefined;
 type Tone = 'positive' | 'attention' | 'critical' | 'neutral';
+type Value = number | string | null | undefined;
 
-type Summary = {
-  paidTodayFormatted?: string;
-  productionTodayFormatted?: string;
-  soldTodayFormatted?: string;
-  conversionPendingFormatted?: string;
-  activeStores?: number;
-  totalStores?: number;
-};
-
-type Goal = {
+type Store = {
+  name?: string;
+  responsible?: string;
+  dailyGoal?: number;
   dailyGoalFormatted?: string;
-  dailyGapFormatted?: string;
-  dailyPercent?: Value;
-  monthPercent?: Value;
-  projectionFormatted?: string;
-  projectionGapFormatted?: string;
+  soldToday?: number;
+  soldTodayFormatted?: string;
+  paidToday?: number;
+  paidTodayFormatted?: string;
+  paidPercent?: number;
+  conversionPending?: number;
+  monthPercent?: number;
 };
 
 type Responsible = {
   name?: string;
-  productionTodayFormatted?: string;
+  paidToday?: number;
   paidTodayFormatted?: string;
+  productionTodayFormatted?: string;
+  dailyGoal?: number;
   dailyGoalFormatted?: string;
-  dailyGapFormatted?: string;
   dailyPercent?: Value;
   monthPercent?: Value;
-  projectionFormatted?: string;
+  monthDelta?: number;
+  monthDeltaFormatted?: string;
   projectionGapFormatted?: string;
-  diagnosis?: string;
-  priority?: string;
-  risk?: string;
+  zeroCount?: number;
+  storeCount?: number;
+  status?: string;
 };
 
 type ZeroStore = {
   name?: string;
   responsible?: string;
+  dailyGoal?: number;
   dailyGoalFormatted?: string;
-};
-
-type AiAction = {
-  title?: string;
-  detail?: string;
-  responsible?: string;
-  severity?: 'critical' | 'attention' | 'normal';
-};
-
-type AiReading = {
-  status?: string;
-  generatedAt?: string;
-  structured?: {
-    headline?: string;
-    executiveSummary?: string;
-    priority?: string;
-    actions?: AiAction[];
-  };
 };
 
 type Payload = {
   ok: boolean;
-  version?: string;
+  viewVersion?: string;
   date?: string;
   updatedAt?: string;
-  summary?: Summary;
-  goal?: Goal;
+  summary?: {
+    paidToday?: number;
+    paidTodayFormatted?: string;
+    productionTodayFormatted?: string;
+    soldToday?: number;
+    soldTodayFormatted?: string;
+    conversionPending?: number;
+    conversionPendingFormatted?: string;
+  };
+  goal?: {
+    dailyGoal?: number;
+    dailyGoalFormatted?: string;
+    dailyGap?: number;
+    dailyGapFormatted?: string;
+    dailyPercent?: Value;
+    monthPercent?: Value;
+    projectionGapFormatted?: string;
+  };
   rhythm?: { label?: string; description?: string; tone?: string };
   responsiblePerformance?: Responsible[];
   regionalPerformance?: Responsible[];
+  operationalStores?: Store[];
   zeroStores?: ZeroStore[];
-  aiReading?: AiReading;
-  missingData?: string[];
+  aiReading?: { text?: string };
   warning?: string;
-  diagnostics?: { warning?: string };
+  missingData?: string[];
+  message?: string;
 };
 
 type CoordinatorView = Responsible & {
-  zeroCount: number;
-  percent: number | null;
+  percent: number;
+  monthPercentNormalized: number;
+  zeroCountNormalized: number;
+  storeCountNormalized: number;
   tone: Tone;
-  score: number;
+  actionLabel: string;
 };
 
 type Priority = {
   title: string;
   detail: string;
   responsible: string;
+  impact: string;
   tone: Tone;
 };
 
 export default function ProducaoPage() {
   const [data, setData] = useState<Payload | null>(null);
-  const [ai, setAi] = useState<AiReading | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const panelTime = useClock();
 
   useEffect(() => {
-    let alive = true;
+    let active = true;
 
     async function load() {
       try {
         const response = await fetch('/api/producao?refresh=1', { cache: 'no-store' });
         const payload = await response.json() as Payload;
-        if (!response.ok || payload.ok === false) throw new Error('API de produção indisponível.');
-        if (!alive) return;
+        if (!response.ok || payload.ok === false) throw new Error(payload.message || 'API indisponível.');
+        if (!active) return;
         setData(payload);
         setError('');
       } catch (requestError) {
         console.error(requestError);
-        if (alive) setError('Falha na atualização. Exibindo a última carga válida.');
+        if (active) setError('Falha na atualização. Exibindo a última carga válida.');
       } finally {
-        if (alive) setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
     load();
     const timer = window.setInterval(load, POLL_MS);
-    return () => { alive = false; window.clearInterval(timer); };
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-
-    async function loadAi() {
-      try {
-        const response = await fetch('/api/producao?mode=ai&refresh=1', { cache: 'no-store' });
-        const payload = await response.json() as { ai?: AiReading };
-        if (alive && payload.ai) setAi(payload.ai);
-      } catch (requestError) {
-        console.error(requestError);
-      }
-    }
-
-    loadAi();
-    const timer = window.setInterval(loadAi, AI_POLL_MS);
-    return () => { alive = false; window.clearInterval(timer); };
-  }, []);
-
-  const view = useMemo(() => buildView(data, ai), [data, ai]);
+  const view = useMemo(() => buildView(data), [data]);
 
   if (loading && !data) return <Loading text="Carregando painel executivo..." />;
   if (!data) return <Loading text="Não foi possível carregar os dados do Radar." />;
@@ -157,38 +139,46 @@ export default function ProducaoPage() {
         <Header data={data} view={view} panelTime={panelTime} stale={Boolean(error)} />
 
         <section className={styles.kpis}>
-          <Kpi icon="R$" label="Pago hoje" value={view.paid} detail={`${view.dailyPercentLabel} da diária necessária`} tone={view.dailyTone} />
-          <Kpi icon="↗" label="Vendido hoje" value={view.sold} detail={`${view.pending} aguardando pagamento`} tone="neutral" />
-          <Kpi icon="!" label="Falta hoje" value={view.dailyGap} detail={`Meta diária: ${view.dailyGoal}`} tone={view.dailyTone} />
-          <Kpi icon="◎" label="Projeção do mês" value={view.projection} detail={view.projectionGap} tone={view.projectionTone} />
+          <Kpi icon={<DollarIcon />} label="Pago hoje" value={view.paid} detail={<><strong>{view.dailyPercent}</strong> da diária necessária</>} tone={view.paidTone} />
+          <Kpi icon={<CartIcon />} label="Vendido hoje" value={view.sold} detail={<><strong>{view.soldComparison}</strong> contra o retrato pago</>} tone="neutral" />
+          <Kpi icon={<WarningIcon />} label="Falta hoje" value={view.gap} detail={<>Necessário: <strong>{view.hourlyNeed}</strong></>} tone="attention" />
+          <Kpi icon={<TargetIcon />} label="Projeção do mês" value={view.monthPercent} detail={<strong className={view.monthDeltaTone === 'positive' ? styles.greenText : styles.redText}>{view.monthDelta}</strong>} tone="projection" />
         </section>
 
         <section className={styles.mainGrid}>
-          <Panel title="Performance por coordenação">
+          <section className={styles.performancePanel}>
+            <h2>Performance por coordenação</h2>
             <div className={styles.tableHeader}>
-              <span>Coordenação</span><span>Pago hoje / diária</span><span>Atingimento</span><span>Projeção mensal</span><span>Lojas zeradas</span><span>Status</span>
+              <span>Coordenação</span>
+              <span>Pago hoje / diária</span>
+              <span>Atingimento</span>
+              <span>Projeção mensal</span>
+              <span>Lojas zeradas</span>
+              <span>Status</span>
             </div>
             <div className={styles.coordinatorList}>
               {view.coordinators.map((coordinator) => <CoordinatorRow key={coordinator.name} coordinator={coordinator} />)}
             </div>
-          </Panel>
+          </section>
 
-          <Panel title="Prioridades agora" compact>
+          <section className={styles.priorityPanel}>
+            <h2><TargetSmallIcon /> Prioridades agora</h2>
             <div className={styles.priorityList}>
               {view.priorities.map((priority, index) => <PriorityRow key={`${priority.title}-${index}`} priority={priority} index={index} />)}
             </div>
-          </Panel>
+          </section>
         </section>
 
         <section className={styles.diagnosis}>
-          <span className={styles.diagnosisIcon}>IA</span>
+          <span className={styles.diagnosisIcon}><BrainIcon /></span>
           <div><b>Diagnóstico executivo</b><p>{view.diagnosis}</p></div>
         </section>
 
         <footer className={styles.footer}>
-          <span>Fonte: Gestão Preditiva Credvix</span>
-          <span>Atualização automática</span>
-          <span>RADAR V1.5</span>
+          <div><DatabaseIcon /><span>Fonte: Gestão Preditiva Credvix</span></div>
+          <div><RefreshIcon /><span>Atualização automática</span></div>
+          <span>Tela 1 de 5</span>
+          <div className={styles.progressDots}>{Array.from({ length: 7 }, (_, index) => <i key={index} className={index === 0 ? styles.activeDot : ''} />)}</div>
         </footer>
       </div>
 
@@ -201,26 +191,28 @@ function Header({ data, view, panelTime, stale }: { data: Payload; view: ReturnT
   return (
     <header className={styles.header}>
       <div className={styles.brand}>
-        <div className={styles.logo}>VX</div>
-        <div><b>RADAR DE PRODUÇÃO</b><span>Credvix · Gestão Comercial</span></div>
+        <div className={styles.wordmark}><span>CRED</span><b>VIX</b></div>
+        <i />
+        <div className={styles.brandTitle}><strong>Radar de produção</strong><span>Gestão comercial</span></div>
       </div>
 
-      <div className={styles.rhythm}>
+      <div className={styles.rhythmCard}>
         <span>Ritmo da operação</span>
         <strong>{view.rhythmLabel}</strong>
-        <small>{view.rhythmDescription}</small>
+        <small>{view.rhythmDetail}</small>
       </div>
 
-      <div className={styles.timeArea}>
-        <div className={styles.timeCard}><span>Painel</span><b>{panelTime}</b></div>
-        <div className={styles.timeCard}><span>Última carga</span><b>{normalizeHour(data.updatedAt)}</b></div>
-        <div className={`${styles.loadStatus} ${stale ? styles.stale : ''}`}><i />{stale ? 'Última carga válida' : 'Dados atualizados'}<span>{data.date || '--/--/----'}</span></div>
+      <div className={styles.timeCard}>
+        <div><span>Painel</span><b><ClockIcon />{panelTime}</b></div>
+        <i />
+        <div><span><SignalIcon /> Última carga</span><b><RefreshIcon />{normalizeHour(data.updatedAt)}</b></div>
+        <small className={stale ? styles.stale : ''}><em />{stale ? 'Última carga válida' : 'Dados atualizados'}</small>
       </div>
     </header>
   );
 }
 
-function Kpi({ icon, label, value, detail, tone }: { icon: string; label: string; value: string; detail: string; tone: Tone }) {
+function Kpi({ icon, label, value, detail, tone }: { icon: ReactNode; label: string; value: string; detail: ReactNode; tone: Tone | 'projection' }) {
   return (
     <article className={`${styles.kpi} ${styles[tone]}`}>
       <span className={styles.kpiIcon}>{icon}</span>
@@ -229,23 +221,37 @@ function Kpi({ icon, label, value, detail, tone }: { icon: string; label: string
   );
 }
 
-function Panel({ title, compact = false, children }: { title: string; compact?: boolean; children: ReactNode }) {
-  return <section className={`${styles.panel} ${compact ? styles.compact : ''}`}><h2>{title}</h2>{children}</section>;
-}
-
 function CoordinatorRow({ coordinator }: { coordinator: CoordinatorView }) {
-  const width = coordinator.percent === null ? 0 : Math.max(3, Math.min(100, coordinator.percent));
+  const width = Math.max(2, Math.min(100, coordinator.percent));
   return (
     <div className={styles.coordinatorRow}>
-      <div className={styles.coordinatorName}><span className={`${styles.avatar} ${styles[coordinator.tone]}`}>●</span><b>{coordinator.name || 'Sem coordenação'}</b></div>
-      <div className={styles.paidCell}>
-        <b>{coordinator.paidTodayFormatted || coordinator.productionTodayFormatted || 'R$ 0,00'} <em>/ {short(coordinator.dailyGoalFormatted, 'Sem diária')}</em></b>
-        <div className={styles.progress}><i className={styles[coordinator.tone]} style={{ width: `${width}%` }} /></div>
+      <div className={styles.coordinatorName}>
+        <span className={`${styles.avatar} ${styles[coordinator.tone]}`}><PersonIcon /></span>
+        <b>{coordinator.name}</b>
       </div>
-      <strong className={styles.percent}>{formatPercent(coordinator.percent)}</strong>
-      <div className={styles.projectionCell}><b>{projectionLabel(coordinator)}</b><small>{short(coordinator.projectionGapFormatted, 'Sem gap projetado')}</small></div>
-      <div className={styles.zeroCell}><b>{coordinator.zeroCount}</b><small>loja(s)</small></div>
-      <span className={`${styles.status} ${styles[coordinator.tone]}`}>{toneLabel(coordinator.tone)}</span>
+
+      <div className={styles.paidCell}>
+        <b>{moneyCompact(coordinator.paidToday)} <em>/ {moneyCompact(coordinator.dailyGoal)}</em></b>
+        <div className={styles.bar}><i className={styles[coordinator.tone]} style={{ width: `${width}%` }} /></div>
+        <small className={styles[coordinator.tone]}>{formatPercent(coordinator.percent)} da diária</small>
+      </div>
+
+      <strong className={`${styles.achievement} ${styles[coordinator.tone]}`}>{formatPercent(coordinator.percent)}</strong>
+
+      <div className={styles.monthCell}>
+        <b className={styles[monthTone(coordinator.monthPercentNormalized)]}>{formatPercent(coordinator.monthPercentNormalized)}</b>
+        <small className={Number(coordinator.monthDelta || 0) >= 0 ? styles.greenText : styles.redText}>{coordinator.monthDeltaFormatted || 'R$ 0,00'}</small>
+      </div>
+
+      <div className={styles.zeroCell}>
+        <b className={coordinator.zeroCountNormalized === 0 ? styles.greenText : styles[coordinator.tone]}>{coordinator.zeroCountNormalized} de {coordinator.storeCountNormalized}</b>
+        <small>{coordinator.storeCountNormalized ? Math.round((coordinator.zeroCountNormalized / coordinator.storeCountNormalized) * 100) : 0}%</small>
+      </div>
+
+      <div className={styles.statusCell}>
+        <span className={`${styles.statusBadge} ${styles[coordinator.tone]}`}>{toneLabel(coordinator.tone)}</span>
+        <small>{coordinator.actionLabel}</small>
+      </div>
     </div>
   );
 }
@@ -254,174 +260,213 @@ function PriorityRow({ priority, index }: { priority: Priority; index: number })
   return (
     <div className={`${styles.priorityRow} ${styles[priority.tone]}`}>
       <em>{index + 1}</em>
-      <div><b>{priority.title}</b><span>{priority.detail}</span><small>Responsável: {priority.responsible}</small></div>
+      <i />
+      <div className={styles.priorityText}>
+        <b>{priority.title}</b>
+        <span>{priority.detail}</span>
+        <small>Responsável: {priority.responsible}</small>
+      </div>
+      <div className={styles.impact}><span>Impacto diário</span><b>{priority.impact}</b></div>
     </div>
   );
+}
+
+function buildView(data: Payload | null) {
+  const summary = data?.summary || {};
+  const goal = data?.goal || {};
+  const responsibleRows = Array.isArray(data?.responsiblePerformance) ? data!.responsiblePerformance! : data?.regionalPerformance || [];
+  const stores = Array.isArray(data?.operationalStores) ? data!.operationalStores! : [];
+  const zeroStores = Array.isArray(data?.zeroStores) ? data!.zeroStores! : [];
+
+  const coordinators = COORDINATOR_ORDER.map((expectedName) => responsibleRows.find((row) => norm(row.name) === expectedName))
+    .filter(Boolean)
+    .map((row) => buildCoordinator(row as Responsible, stores, zeroStores));
+
+  const paid = Number(summary.paidToday || 0);
+  const sold = Number(summary.soldToday || 0);
+  const dailyGoal = Number(goal.dailyGoal || 0);
+  const dailyPercent = dailyGoal > 0 ? (paid / dailyGoal) * 100 : toPercent(goal.dailyPercent);
+  const monthPercent = toPercent(goal.monthPercent);
+  const pending = Math.max(0, sold - paid);
+  const workingHoursLeft = hoursLeft();
+  const dailyGap = Math.max(0, Number(goal.dailyGap || dailyGoal - paid));
+  const monthDelta = String(goal.projectionGapFormatted || 'R$ 0,00');
+  const soldVsPaid = paid > 0 ? ((sold - paid) / paid) * 100 : sold > 0 ? 100 : 0;
+
+  return {
+    paid: summary.paidTodayFormatted || summary.productionTodayFormatted || money(paid),
+    sold: summary.soldTodayFormatted || money(sold),
+    gap: goal.dailyGapFormatted || money(dailyGap),
+    dailyPercent: formatPercent(dailyPercent),
+    soldComparison: `${soldVsPaid >= 0 ? '+' : ''}${Math.round(soldVsPaid)}%`,
+    hourlyNeed: workingHoursLeft > 0 ? `${moneyCompact(dailyGap / workingHoursLeft)}/h` : moneyCompact(dailyGap),
+    monthPercent: formatPercent(monthPercent),
+    monthDelta,
+    monthDeltaTone: monthDelta.trim().startsWith('+') ? 'positive' : 'critical',
+    paidTone: dailyPercent >= 100 ? 'positive' as Tone : dailyPercent >= 50 ? 'attention' as Tone : 'critical' as Tone,
+    rhythmLabel: data?.rhythm?.label || 'ATENÇÃO',
+    rhythmDetail: data?.rhythm?.description || `${money(pending)} vendidos aguardam pagamento`,
+    coordinators,
+    priorities: buildPriorities(zeroStores, stores),
+    diagnosis: data?.aiReading?.text || deterministicDiagnosis(coordinators),
+    warning: data?.warning || (data?.missingData?.length ? `Dados pendentes: ${data.missingData.join(', ')}` : '')
+  };
+}
+
+function buildCoordinator(row: Responsible, stores: Store[], zeroStores: ZeroStore[]): CoordinatorView {
+  const coordinatorStores = stores.filter((store) => norm(store.responsible) === norm(row.name));
+  const paid = Number(row.paidToday || 0);
+  const dailyGoal = Number(row.dailyGoal || 0);
+  const monthPercentNormalized = toPercent(row.monthPercent);
+  const percent = dailyGoal > 0 ? (paid / dailyGoal) * 100 : monthPercentNormalized >= 100 ? 100 : 0;
+  const zeroCountNormalized = Number(row.zeroCount ?? zeroStores.filter((store) => norm(store.responsible) === norm(row.name)).length);
+  const storeCountNormalized = Number(row.storeCount ?? coordinatorStores.length);
+  const tone: Tone = monthPercentNormalized < 85 || zeroCountNormalized >= 3 || percent < 35
+    ? 'critical'
+    : monthPercentNormalized < 100 || zeroCountNormalized > 0 || percent < 100
+      ? 'attention'
+      : 'positive';
+
+  return {
+    ...row,
+    percent,
+    monthPercentNormalized,
+    zeroCountNormalized,
+    storeCountNormalized,
+    tone,
+    actionLabel: tone === 'critical' ? 'Ação imediata' : tone === 'attention' ? 'Acompanhar' : 'Controlado'
+  };
+}
+
+function buildPriorities(zeroStores: ZeroStore[], stores: Store[]): Priority[] {
+  const zeroPriorities = [...zeroStores]
+    .sort((a, b) => Number(b.dailyGoal || 0) - Number(a.dailyGoal || 0))
+    .map((store, index) => ({
+      title: String(store.name || 'Loja zerada').toUpperCase(),
+      detail: `Zerada até ${currentHourLabel()}`,
+      responsible: store.responsible || 'Sem coordenação',
+      impact: store.dailyGoalFormatted || money(Number(store.dailyGoal || 0)),
+      tone: index === 0 ? 'critical' as Tone : index < 3 ? 'attention' as Tone : 'neutral' as Tone
+    }));
+
+  const zeroNames = new Set(zeroStores.map((store) => norm(store.name)));
+  const gapPriorities = stores
+    .filter((store) => !zeroNames.has(norm(store.name)) && Number(store.dailyGoal || 0) > Number(store.paidToday || 0))
+    .map((store) => ({ ...store, gap: Math.max(0, Number(store.dailyGoal || 0) - Number(store.paidToday || 0)) }))
+    .sort((a, b) => b.gap - a.gap)
+    .map((store) => ({
+      title: String(store.name || 'Loja').toUpperCase(),
+      detail: `${moneyCompact(store.gap)} abaixo da diária`,
+      responsible: store.responsible || 'Sem coordenação',
+      impact: moneyCompact(store.gap),
+      tone: 'neutral' as Tone
+    }));
+
+  return [...zeroPriorities, ...gapPriorities].slice(0, 5);
+}
+
+function deterministicDiagnosis(coordinators: CoordinatorView[]) {
+  const risk = [...coordinators].sort((a, b) => {
+    const aScore = (a.monthPercentNormalized < 85 ? 1000 : 0) + a.zeroCountNormalized * 100 + Math.max(0, 100 - a.monthPercentNormalized);
+    const bScore = (b.monthPercentNormalized < 85 ? 1000 : 0) + b.zeroCountNormalized * 100 + Math.max(0, 100 - b.monthPercentNormalized);
+    return bScore - aScore;
+  })[0];
+  if (!risk) return 'Sem leitura consolidada por coordenação nesta atualização.';
+  return `${risk.name} concentra o maior risco do dia por projeção mensal de ${formatPercent(risk.monthPercentNormalized)} e ${risk.zeroCountNormalized} loja(s) zerada(s).`;
+}
+
+function toneLabel(tone: Tone) {
+  if (tone === 'critical') return 'Crítico';
+  if (tone === 'attention') return 'Atenção';
+  if (tone === 'positive') return 'Controlado';
+  return 'Monitorar';
+}
+
+function monthTone(percent: number): Tone {
+  return percent >= 100 ? 'positive' : percent >= 85 ? 'attention' : 'critical';
+}
+
+function toPercent(value: Value) {
+  const parsed = numeric(value);
+  if (parsed === null) return 0;
+  return Math.abs(parsed) <= 2 ? parsed * 100 : parsed;
+}
+
+function numeric(value: Value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const raw = String(value ?? '').trim();
+  if (!raw || /AUSENTE|SEM/i.test(raw)) return null;
+  const normalized = raw.includes(',')
+    ? raw.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.')
+    : raw.replace(/[^0-9.-]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value).toLocaleString('pt-BR')}%`;
+}
+
+function money(value: number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
+}
+
+function moneyCompact(value: Value) {
+  const parsed = Number(value || 0);
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(parsed);
+}
+
+function normalizeHour(value?: string) {
+  const raw = String(value || '').trim();
+  const direct = raw.match(/(\d{1,2})h(\d{2})/i);
+  if (direct) return `${direct[1].padStart(2, '0')}h${direct[2]}`;
+  const colon = raw.match(/(\d{1,2}):(\d{2})/);
+  return colon ? `${colon[1].padStart(2, '0')}h${colon[2]}` : '--h--';
+}
+
+function hoursLeft() {
+  const now = new Date();
+  const hour = Number(new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false }).format(now));
+  return Math.max(1, 19 - hour);
+}
+
+function currentHourLabel() {
+  const parts = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+  const hour = parts.find((part) => part.type === 'hour')?.value || '--';
+  const minute = parts.find((part) => part.type === 'minute')?.value || '--';
+  return `${hour}h${minute}`;
+}
+
+function norm(value?: string) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+}
+
+function useClock() {
+  const [time, setTime] = useState('--h--');
+  useEffect(() => {
+    const update = () => setTime(currentHourLabel());
+    update();
+    const timer = window.setInterval(update, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return time;
 }
 
 function Loading({ text }: { text: string }) {
   return <main className={styles.screen}><div className={styles.loading}><b>RADAR DE PRODUÇÃO</b><span>{text}</span></div></main>;
 }
 
-function buildView(data: Payload | null, ai: AiReading | null) {
-  const summary = data?.summary || {};
-  const goal = data?.goal || {};
-  const responsibleRows = Array.isArray(data?.responsiblePerformance) ? data!.responsiblePerformance! : data?.regionalPerformance || [];
-  const zeroStores = Array.isArray(data?.zeroStores) ? data!.zeroStores! : [];
-  const zeroByResponsible = countZeroStores(zeroStores);
-
-  const coordinators: CoordinatorView[] = responsibleRows.map((row) => {
-    const percent = numeric(row.dailyPercent);
-    const zeroCount = zeroByResponsible[norm(row.name)] || 0;
-    const projectionNegative = isNegative(row.projectionGapFormatted);
-    const tone: Tone = projectionNegative || (percent !== null && percent < 50) || zeroCount >= 3
-      ? 'critical'
-      : (percent !== null && percent < 100) || zeroCount > 0
-        ? 'attention'
-        : 'positive';
-    const score = (projectionNegative ? -1000 : 0) - zeroCount * 100 + (percent ?? 999);
-    return { ...row, percent, zeroCount, tone, score };
-  }).sort((a, b) => a.score - b.score);
-
-  const activeAi = ai?.structured ? ai : data?.aiReading;
-  const priorities = buildPriorities(activeAi, coordinators, zeroStores);
-  const dailyPercent = numeric(goal.dailyPercent);
-  const monthPercent = numeric(goal.monthPercent);
-  const projectionTone: Tone = isNegative(goal.projectionGapFormatted) || (monthPercent !== null && monthPercent < 90)
-    ? 'critical'
-    : monthPercent !== null && monthPercent < 100
-      ? 'attention'
-      : 'positive';
-
-  return {
-    paid: summary.paidTodayFormatted || summary.productionTodayFormatted || 'R$ 0,00',
-    sold: summary.soldTodayFormatted || 'R$ 0,00',
-    pending: summary.conversionPendingFormatted || 'R$ 0,00',
-    dailyGoal: short(goal.dailyGoalFormatted, 'Sem meta diária'),
-    dailyGap: short(goal.dailyGapFormatted, 'Sem gap diário'),
-    dailyPercentLabel: formatPercent(dailyPercent),
-    dailyTone: toneFromPercent(dailyPercent),
-    projection: monthPercent !== null ? `${monthPercent}%` : short(goal.projectionFormatted, 'Sem projeção'),
-    projectionGap: short(goal.projectionGapFormatted, 'Sem gap projetado'),
-    projectionTone,
-    rhythmLabel: data?.rhythm?.label || 'RITMO INDETERMINADO',
-    rhythmDescription: data?.rhythm?.description || 'Sem leitura disponível para o horário.',
-    coordinators,
-    priorities,
-    diagnosis: activeAi?.structured?.executiveSummary || deterministicDiagnosis(coordinators),
-    warning: data?.diagnostics?.warning || data?.warning || (data?.missingData?.length ? `Dados pendentes: ${data.missingData.join(', ')}` : '')
-  };
+function Svg({ children, viewBox = '0 0 24 24' }: { children: ReactNode; viewBox?: string }) {
+  return <svg viewBox={viewBox} aria-hidden="true" focusable="false">{children}</svg>;
 }
-
-function buildPriorities(ai: AiReading | undefined, coordinators: CoordinatorView[], zeroStores: ZeroStore[]): Priority[] {
-  const actions = ai?.structured?.actions || [];
-  if (actions.length) {
-    return actions.slice(0, 5).map((action) => ({
-      title: clean(action.title || 'Ação recomendada'),
-      detail: clean(action.detail || ''),
-      responsible: clean(action.responsible || 'Gestão comercial'),
-      tone: action.severity === 'critical' ? 'critical' : action.severity === 'attention' ? 'attention' : 'neutral'
-    }));
-  }
-
-  const priorities: Priority[] = [];
-  coordinators.filter((item) => item.tone === 'critical').slice(0, 2).forEach((item) => {
-    priorities.push({
-      title: item.name || 'Coordenação crítica',
-      detail: `${formatPercent(item.percent)} da diária e ${item.zeroCount} loja(s) zerada(s).`,
-      responsible: item.name || 'Coordenação',
-      tone: 'critical'
-    });
-  });
-
-  zeroStores.slice(0, 3).forEach((store) => priorities.push({
-    title: store.name || 'Loja zerada',
-    detail: `Sem produção na atualização. Diária: ${short(store.dailyGoalFormatted, 'não cadastrada')}.`,
-    responsible: store.responsible || 'Sem coordenação',
-    tone: 'attention'
-  }));
-
-  return priorities.slice(0, 5);
-}
-
-function deterministicDiagnosis(coordinators: CoordinatorView[]) {
-  const priority = coordinators[0];
-  if (!priority) return 'Operação sem leitura consolidada por coordenação nesta atualização.';
-  return `${priority.name} concentra a principal necessidade de atuação, com ${formatPercent(priority.percent)} da diária e ${priority.zeroCount} loja(s) zerada(s).`;
-}
-
-function projectionLabel(coordinator: CoordinatorView) {
-  const monthPercent = numeric(coordinator.monthPercent);
-  if (monthPercent !== null) return `${monthPercent}%`;
-  return short(coordinator.projectionFormatted, 'Sem projeção');
-}
-
-function countZeroStores(stores: ZeroStore[]) {
-  return stores.reduce<Record<string, number>>((acc, store) => {
-    const key = norm(store.responsible);
-    if (key) acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
-}
-
-function toneFromPercent(percent: number | null): Tone {
-  if (percent === null) return 'neutral';
-  if (percent >= 100) return 'positive';
-  if (percent >= 70) return 'attention';
-  return 'critical';
-}
-
-function toneLabel(tone: Tone) {
-  if (tone === 'positive') return 'Controlado';
-  if (tone === 'attention') return 'Atenção';
-  if (tone === 'critical') return 'Crítico';
-  return 'Monitorar';
-}
-
-function numeric(value: Value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function formatPercent(value: number | null) {
-  return value === null ? 'Sem diária' : `${Math.round(value)}%`;
-}
-
-function short(value: Value, fallback: string) {
-  const text = String(value ?? '').trim();
-  return !text || text.includes('DADO AUSENTE') ? fallback : text;
-}
-
-function isNegative(value: Value) {
-  return String(value || '').trim().startsWith('-');
-}
-
-function norm(value: Value) {
-  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
-}
-
-function clean(value: Value) {
-  return String(value || '').replace(/[#*_`|>-]{2,}/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeHour(value: Value) {
-  const match = String(value || '').match(/(\d{1,2})[:h](\d{2})/);
-  return match ? `${match[1].padStart(2, '0')}h${match[2]}` : '--h--';
-}
-
-function useClock() {
-  const [time, setTime] = useState(now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setTime(now()), 30000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return time;
-}
-
-function now() {
-  return new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).format(new Date()).replace(':', 'h');
-}
+function DollarIcon() { return <Svg><path d="M12 3v18M16 7.2c-.8-1.1-2.1-1.7-4-1.7-2.4 0-4 1.2-4 3s1.4 2.7 4.2 3.4c2.6.6 3.8 1.5 3.8 3.3 0 2-1.8 3.3-4.4 3.3-2 0-3.6-.7-4.6-2" /></Svg>; }
+function CartIcon() { return <Svg><path d="M3 4h2l2.2 10.2h9.9l2-7.2H6.1M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" /></Svg>; }
+function WarningIcon() { return <Svg><path d="M12 3 2.8 20h18.4L12 3Z" /><path d="M12 9v5m0 3h.01" /></Svg>; }
+function TargetIcon() { return <Svg><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><path d="M15 9 21 3m-4 0h4v4" /></Svg>; }
+function TargetSmallIcon() { return <span className={styles.titleIcon}><TargetIcon /></span>; }
+function ClockIcon() { return <Svg><circle cx="12" cy="12" r="9" /><path d="M12 7v6l4 2" /></Svg>; }
+function RefreshIcon() { return <Svg><path d="M20 7v5h-5M4 17v-5h5M6.1 8A7 7 0 0 1 18.4 6.4L20 8M4 16l1.6 1.6A7 7 0 0 0 17.9 16" /></Svg>; }
+function SignalIcon() { return <Svg><path d="M4 10a11 11 0 0 1 16 0M7 13a7 7 0 0 1 10 0M10 16a3 3 0 0 1 4 0" /><circle cx="12" cy="19" r="1" /></Svg>; }
+function PersonIcon() { return <Svg><circle cx="12" cy="8" r="4" fill="currentColor" stroke="none" /><path d="M4.5 21c.6-5 3-7.5 7.5-7.5s6.9 2.5 7.5 7.5" fill="currentColor" stroke="none" /></Svg>; }
+function BrainIcon() { return <Svg><path d="M9.5 4.5A3 3 0 0 0 5 7v1a3 3 0 0 0-1 5.2A3 3 0 0 0 7 18h1.2M14.5 4.5A3 3 0 0 1 19 7v1a3 3 0 0 1 1 5.2A3 3 0 0 1 17 18h-1.2M9.5 4.5v15m5-15v15M7 9.5h2.5m5 0H17M7.5 15h2m5 0h2" /></Svg>; }
+function DatabaseIcon() { return <Svg><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></Svg>; }
