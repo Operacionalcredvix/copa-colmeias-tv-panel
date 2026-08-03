@@ -1,5 +1,5 @@
 import { JWT } from 'google-auth-library';
-import { getRadarPayload, handleRadarRequest } from '../../../lib/radar-core';
+import { handleRadarRequest } from '../../../lib/radar-core';
 import { handleStructuredAiRequest } from '../../../lib/deepseek-structured';
 
 export const dynamic = 'force-dynamic';
@@ -20,29 +20,27 @@ export async function GET(request) {
     return handleRadarRequest(request);
   }
 
-  return handleVisualPayload(request);
+  return handleVisualPayload();
 }
 
 export async function POST(request) {
   return GET(request);
 }
 
-async function handleVisualPayload(request) {
-  const url = new URL(request.url);
-  const noCache = url.searchParams.get('cache') === '0' || url.searchParams.get('refresh') === '1';
-
+async function handleVisualPayload() {
   try {
-    const [base, values] = await Promise.all([
-      getRadarPayload({ noCache }),
-      getDailyValues()
-    ]);
+    // A tela executiva usa a DIÁRIA ESTÁTICA como fonte primária.
+    // Leituras auxiliares do radar legado não podem mais bloquear a abertura do painel.
+    const values = await getDailyValues();
     const operational = parseDailyOperational(values);
-    const payload = patchPayload(base, operational);
+    const payload = patchPayload({}, operational);
 
     return Response.json(payload, {
       headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
     });
   } catch (error) {
+    console.error('[RADAR_V15_DATA_ERROR]', error);
+
     return Response.json({
       ok: false,
       error: 'RADAR_V15_DATA_ERROR',
@@ -53,7 +51,7 @@ async function handleVisualPayload(request) {
 
 async function getDailyValues() {
   const token = await getAccessToken();
-  const range = "'DIÁRIA ESTÁTICA'!A1:J123";
+  const range = "'DIÁRIA ESTÁTICA'!A1:N123";
   const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${MANAGEMENT_ID}/values/${encodeURIComponent(range)}?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
   const response = await fetch(endpoint, {
     headers: { Authorization: `Bearer ${token}` },
@@ -61,7 +59,8 @@ async function getDailyValues() {
   });
 
   if (!response.ok) {
-    throw new Error(`DIÁRIA ESTÁTICA indisponível: Google Sheets HTTP ${response.status}`);
+    const detail = await response.text();
+    throw new Error(`DIÁRIA ESTÁTICA indisponível: Google Sheets HTTP ${response.status} ${detail}`);
   }
 
   const json = await response.json();
@@ -130,8 +129,8 @@ function parseDailyOperational(values) {
         const key = normalize(rawName);
         if (!rawName || key.startsWith('TOTAL') || key.startsWith('COORDENACAO')) break;
 
-        const monthGoal = value(headers, data, ['META JULHO', 'META']);
-        const monthRealized = value(headers, data, ['REALIZADO JULHO', 'REALIZADO']);
+        const monthGoal = value(headers, data, ['META AGOSTO', 'META JULHO', 'META']);
+        const monthRealized = value(headers, data, ['REALIZADO AGOSTO', 'REALIZADO JULHO', 'REALIZADO']);
         const dailyGoal = value(headers, data, ['DIARIA']);
         const soldToday = value(headers, data, ['VENDIDO HOJE']);
         const paidToday = value(headers, data, ['PAGO NO RETRATO', 'PAGO HOJE']);
@@ -162,6 +161,7 @@ function parseDailyOperational(values) {
 
   if (!summary) throw new Error('Linha TOTAL da DIÁRIA ESTÁTICA não encontrada.');
   if (!coordinators.length) throw new Error('Resumo de coordenadoras não encontrado na DIÁRIA ESTÁTICA.');
+  if (!stores.length) throw new Error('Blocos de lojas não encontrados na DIÁRIA ESTÁTICA.');
 
   return { summary, coordinators, stores, updateLabel, baseDate };
 }
@@ -262,6 +262,8 @@ function patchPayload(base, operational) {
   return {
     ...base,
     ok: true,
+    source: 'gestao-preditiva-diaria-estatica',
+    version: 'RADAR_V1_5_DIARIA_ESTATICA',
     viewVersion: 'RADAR_V1_5_MOCK',
     updatedAt: extractHour(operational.updateLabel) || base.updatedAt,
     date: operational.baseDate || base.date,
