@@ -451,13 +451,13 @@ function buildPriorities(zeroStores: ZeroStore[], stores: Store[]): Priority[] {
       const gap = Math.max(0, Number(store.dailyGoal || 0));
       return {
         title: String(store.name || 'Loja zerada').toUpperCase(),
-        kind: 'ZERADA',
+        kind: 'ZERADA' as const,
         detail: 'Acionar carteira agora',
         responsible: store.responsible || 'Sem coordenação',
         impact: moneyCompact(gap),
         impactLabel: 'Gap recuperável',
         impactValue: gap,
-        tone: index === 0 ? 'critical' : index < 3 ? 'attention' : 'neutral'
+        tone: (index === 0 ? 'critical' : index < 3 ? 'attention' : 'neutral') as Tone
       };
     });
 
@@ -491,13 +491,13 @@ function buildPriorities(zeroStores: ZeroStore[], stores: Store[]): Priority[] {
       const gap = Math.max(0, Number(store.dailyGoal || 0) - Number(store.paidToday || 0));
       return {
         title: String(store.name || 'Loja').toUpperCase(),
-        kind: 'ABAIXO DA DIÁRIA',
+        kind: 'ABAIXO DA DIÁRIA' as const,
         detail: 'Recuperar produção ainda hoje',
         responsible: store.responsible || 'Sem coordenação',
         impact: moneyCompact(gap),
         impactLabel: 'Gap recuperável',
         impactValue: gap,
-        tone: 'neutral'
+        tone: 'neutral' as Tone
       };
     })
     .sort((a, b) => b.impactValue - a.impactValue);
