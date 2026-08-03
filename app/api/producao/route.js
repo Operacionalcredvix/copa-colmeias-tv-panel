@@ -29,29 +29,48 @@ export async function POST(request) {
 
 async function handleVisualPayload() {
   try {
-    // A tela executiva usa a DIÁRIA ESTÁTICA como fonte primária.
-    // Leituras auxiliares do radar legado não podem mais bloquear a abertura do painel.
-    const values = await getDailyValues();
-    const operational = parseDailyOperational(values);
-    const payload = patchPayload({}, operational);
+    const [dailyValues, projectionResult] = await Promise.all([
+      getSheetValues("'DIÁRIA ESTÁTICA'!A1:N123", 'DIÁRIA ESTÁTICA'),
+      getSheetValues("'PROJEÇÃO DE META'!A1:G127", 'PROJEÇÃO DE META')
+        .then((values) => ({ values, error: null }))
+        .catch((error) => {
+          console.error('[RADAR_V16_PROJECTION_READ_ERROR]', error);
+          return { values: null, error };
+        })
+    ]);
+
+    const operational = parseDailyOperational(dailyValues);
+    let projection = emptyProjection();
+
+    if (projectionResult.values) {
+      try {
+        projection = parseProjection(projectionResult.values);
+      } catch (error) {
+        console.error('[RADAR_V16_PROJECTION_PARSE_ERROR]', error);
+        projection = emptyProjection(error?.message || String(error));
+      }
+    } else {
+      projection = emptyProjection(projectionResult.error?.message || String(projectionResult.error || 'Falha de leitura.'));
+    }
+
+    const payload = patchPayload({}, operational, projection);
 
     return Response.json(payload, {
       headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
     });
   } catch (error) {
-    console.error('[RADAR_V15_DATA_ERROR]', error);
+    console.error('[RADAR_V16_DATA_ERROR]', error);
 
     return Response.json({
       ok: false,
-      error: 'RADAR_V15_DATA_ERROR',
+      error: 'RADAR_V16_DATA_ERROR',
       message: error?.message || String(error)
     }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }
 
-async function getDailyValues() {
+async function getSheetValues(range, label) {
   const token = await getAccessToken();
-  const range = "'DIÁRIA ESTÁTICA'!A1:N123";
   const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${MANAGEMENT_ID}/values/${encodeURIComponent(range)}?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
   const response = await fetch(endpoint, {
     headers: { Authorization: `Bearer ${token}` },
@@ -60,7 +79,7 @@ async function getDailyValues() {
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`DIÁRIA ESTÁTICA indisponível: Google Sheets HTTP ${response.status} ${detail}`);
+    throw new Error(`${label} indisponível: Google Sheets HTTP ${response.status} ${detail}`);
   }
 
   const json = await response.json();
@@ -184,7 +203,59 @@ function parseSummaryRow(headers, row) {
   };
 }
 
-function patchPayload(base, operational) {
+function parseProjection(values) {
+  const rows = [];
+  const flatText = values.flat().map((cell) => String(cell ?? '').trim()).filter(Boolean);
+  const updateLabel = flatText.find((text) => /^Atualizado às\s+/i.test(text)) || '';
+  let headerIndex = -1;
+  let headers = [];
+
+  for (let index = 0; index < values.length; index += 1) {
+    const candidate = (values[index] || []).map(normalize);
+    if (candidate[0] === 'COORDENADORA' && candidate.includes('% PROJETADO')) {
+      headerIndex = index;
+      headers = candidate;
+      break;
+    }
+  }
+
+  if (headerIndex < 0) {
+    throw new Error('Cabeçalho consolidado da PROJEÇÃO DE META não encontrado.');
+  }
+
+  for (let index = headerIndex + 1; index < values.length; index += 1) {
+    const row = values[index] || [];
+    const name = String(row[0] || '').trim();
+    const key = normalize(name);
+
+    if (!name || key.startsWith('COORDENACAO')) break;
+
+    rows.push({
+      name,
+      monthRealized: nullableNumber(rawValue(headers, row, ['REALIZADO'])),
+      monthGoal: nullableNumber(rawValue(headers, row, ['META'])),
+      projectionPercent: nullablePercent(rawValue(headers, row, ['% PROJETADO'])),
+      dailyGoal: nullableNumber(rawValue(headers, row, ['DIARIA NECESSARIA DO DIA', 'DIARIA'])),
+      paidToday: nullableNumber(rawValue(headers, row, ['PAGO HOJE', 'PAGO NO RETRATO']))
+    });
+  }
+
+  if (!rows.length) {
+    throw new Error('Resumo de projeção por coordenação não encontrado na PROJEÇÃO DE META.');
+  }
+
+  return { rows, updateLabel, warning: '' };
+}
+
+function emptyProjection(message = '') {
+  return {
+    rows: [],
+    updateLabel: '',
+    warning: message ? `Projeção mensal indisponível: ${message}` : ''
+  };
+}
+
+function patchPayload(base, operational, projection) {
   const total = operational.summary;
   const paidToday = total.paidToday;
   const soldToday = total.soldToday;
@@ -192,7 +263,25 @@ function patchPayload(base, operational) {
   const dailyGap = Math.max(0, dailyGoal - paidToday);
   const soldGap = Math.max(0, dailyGoal - soldToday);
   const pending = Math.max(0, soldToday - paidToday);
-  const monthDelta = total.monthRealized - total.monthGoal;
+  const actualMonthDelta = total.monthRealized - total.monthGoal;
+  const projectionByName = new Map(projection.rows.map((item) => [normalize(item.name), item]));
+
+  const projectionMatches = operational.coordinators.map((item) => ({
+    operational: item,
+    projection: projectionByName.get(normalize(item.name)) || null
+  }));
+  const missingProjectionNames = projectionMatches
+    .filter(({ projection: item }) => !item || !Number.isFinite(item.projectionPercent))
+    .map(({ operational: item }) => item.name);
+  const hasCompleteProjection = projectionMatches.length > 0 && missingProjectionNames.length === 0;
+  const projectedMonthAmount = hasCompleteProjection
+    ? projectionMatches.reduce((sum, { operational: item, projection: projected }) => sum + (item.monthGoal * projected.projectionPercent / 100), 0)
+    : null;
+  const monthProjectionPercent = hasCompleteProjection && total.monthGoal > 0
+    ? (projectedMonthAmount / total.monthGoal) * 100
+    : null;
+  const monthProjectionGap = monthProjectionPercent === null ? null : projectedMonthAmount - total.monthGoal;
+
   const zeroStores = operational.stores
     .filter((store) => store.soldToday <= 0)
     .sort((a, b) => b.dailyGoal - a.dailyGoal)
@@ -213,7 +302,12 @@ function patchPayload(base, operational) {
     const dailyPercent = item.dailyGoal > 0
       ? (item.paidToday / item.dailyGoal) * 100
       : item.monthPercent >= 100 ? 100 : 0;
-    const delta = item.monthRealized - item.monthGoal;
+    const actualDelta = item.monthRealized - item.monthGoal;
+    const projectionRow = projectionByName.get(normalize(item.name));
+    const projectionPercent = Number.isFinite(projectionRow?.projectionPercent) ? projectionRow.projectionPercent : null;
+    const projectionAmount = projectionPercent === null ? null : item.monthGoal * projectionPercent / 100;
+    const projectionGap = projectionAmount === null ? null : projectionAmount - item.monthGoal;
+    const projectionRisk = projectionPercent === null ? true : projectionPercent < 85;
 
     return {
       name: item.name,
@@ -236,15 +330,23 @@ function patchPayload(base, operational) {
       monthRealized: item.monthRealized,
       monthRealizedFormatted: money(item.monthRealized),
       monthPercent: item.monthPercent,
-      monthDelta: delta,
-      monthDeltaFormatted: signedMoney(delta),
-      projectionGapFormatted: signedMoney(delta),
+      monthAchievedPercent: item.monthPercent,
+      monthProjectionPercent: projectionPercent,
+      monthProjectionAmount: projectionAmount,
+      monthProjectionAmountFormatted: projectionAmount === null ? '' : money(projectionAmount),
+      monthProjectionGap: projectionGap,
+      monthProjectionGapFormatted: projectionGap === null ? '' : signedMoney(projectionGap),
+      monthDelta: actualDelta,
+      monthDeltaFormatted: signedMoney(actualDelta),
+      projectionGapFormatted: projectionGap === null ? '' : signedMoney(projectionGap),
       zeroCount,
       storeCount: coordinatorStores.length,
       status: item.status,
-      risk: zeroCount >= 3 || item.monthPercent < 85 ? 'Risco elevado' : zeroCount > 0 || item.monthPercent < 100 ? 'Atenção' : 'Controlado',
+      risk: projectionRisk || zeroCount >= 3 ? 'Risco elevado' : zeroCount > 0 || dailyPercent < 100 ? 'Atenção' : 'Controlado',
       priority: zeroCount ? 'Atuar nas lojas zeradas' : 'Acompanhar operação',
-      diagnosis: `${zeroCount} loja(s) zerada(s) e ${formatPercent(item.monthPercent)} da meta mensal.`
+      diagnosis: projectionPercent === null
+        ? `${zeroCount} loja(s) zerada(s), ${formatPercent(item.monthPercent)} da meta cumprida e projeção indisponível.`
+        : `${zeroCount} loja(s) zerada(s), ${formatPercent(item.monthPercent)} cumprido e projeção mensal de ${formatPercent(projectionPercent)}.`
     };
   });
 
@@ -258,14 +360,22 @@ function patchPayload(base, operational) {
   const rhythmDescription = paidToday >= dailyGoal
     ? `${money(paidToday)} pagos contra diária de ${money(dailyGoal)}`
     : `${money(pending)} vendidos aguardam pagamento • ${money(soldGap)} ainda faltam em vendas para a diária`;
+  const warnings = [projection.warning];
+
+  if (missingProjectionNames.length) {
+    warnings.push(`Sem projeção mensal para: ${missingProjectionNames.join(', ')}.`);
+  }
+
+  const warning = warnings.filter(Boolean).join(' ');
+  const updatedAt = latestUpdateHour(operational.updateLabel, projection.updateLabel) || base.updatedAt;
 
   return {
     ...base,
     ok: true,
-    source: 'gestao-preditiva-diaria-estatica',
-    version: 'RADAR_V1_5_DIARIA_ESTATICA',
-    viewVersion: 'RADAR_V1_5_MOCK',
-    updatedAt: extractHour(operational.updateLabel) || base.updatedAt,
+    source: 'gestao-preditiva-diaria-estatica+projecao-meta',
+    version: 'RADAR_V1_6_PROJECAO_MENSAL',
+    viewVersion: 'RADAR_V1_6',
+    updatedAt,
     date: operational.baseDate || base.date,
     summary: {
       ...(base.summary || {}),
@@ -300,11 +410,19 @@ function patchPayload(base, operational) {
       monthRealized: total.monthRealized,
       monthRealizedFormatted: money(total.monthRealized),
       monthPercent: total.monthPercent,
+      monthAchievedPercent: total.monthPercent,
       monthGap: Math.max(0, total.monthGoal - total.monthRealized),
       monthGapFormatted: money(Math.max(0, total.monthGoal - total.monthRealized)),
-      projectionFormatted: formatPercent(total.monthPercent),
-      projectionGap: monthDelta,
-      projectionGapFormatted: signedMoney(monthDelta)
+      monthProjectionPercent,
+      monthProjectionAmount: projectedMonthAmount,
+      monthProjectionAmountFormatted: projectedMonthAmount === null ? '' : money(projectedMonthAmount),
+      monthProjectionGap,
+      monthProjectionGapFormatted: monthProjectionGap === null ? '' : signedMoney(monthProjectionGap),
+      projectionFormatted: monthProjectionPercent === null ? '' : formatPercent(monthProjectionPercent),
+      projectionGap: monthProjectionGap,
+      projectionGapFormatted: monthProjectionGap === null ? '' : signedMoney(monthProjectionGap),
+      actualGap: actualMonthDelta,
+      actualGapFormatted: signedMoney(actualMonthDelta)
     },
     rhythm: {
       label: rhythmLabel,
@@ -318,7 +436,7 @@ function patchPayload(base, operational) {
     zeroStores,
     aiReading: {
       status: 'DETERMINISTIC',
-      generatedAt: extractHour(operational.updateLabel),
+      generatedAt: updatedAt,
       text: buildDiagnosis(responsiblePerformance),
       priorityResponsible: highestRisk(responsiblePerformance)?.name || ''
     },
@@ -326,7 +444,9 @@ function patchPayload(base, operational) {
       `Pago hoje: ${money(paidToday)}`,
       `Vendido hoje: ${money(soldToday)}`,
       `Falta hoje: ${money(dailyGap)}`,
-      `Projeção do mês: ${formatPercent(total.monthPercent)}`
+      monthProjectionPercent === null
+        ? `Meta cumprida: ${formatPercent(total.monthPercent)}`
+        : `Projeção do mês: ${formatPercent(monthProjectionPercent)} • cumprido: ${formatPercent(total.monthPercent)}`
     ],
     counts: {
       ...(base.counts || {}),
@@ -335,22 +455,31 @@ function patchPayload(base, operational) {
       soldActiveStores: operational.stores.filter((store) => store.soldToday > 0).length,
       paidActiveStores: operational.stores.filter((store) => store.paidToday > 0).length
     },
-    missingData: []
+    missingData: missingProjectionNames.map((name) => `PROJEÇÃO MENSAL ${name}`),
+    warning
   };
 }
 
 function buildDiagnosis(rows) {
   const risk = highestRisk(rows);
   if (!risk) return 'Sem leitura consolidada por coordenação nesta atualização.';
-  return `${risk.name} concentra o maior risco do dia por ${formatPercent(risk.monthPercent)} da meta e ${risk.zeroCount} loja(s) zerada(s).`;
+
+  if (!Number.isFinite(risk.monthProjectionPercent)) {
+    return `${risk.name} concentra o maior risco por ${risk.zeroCount} loja(s) zerada(s); projeção mensal indisponível.`;
+  }
+
+  return `${risk.name} concentra o maior risco: projeção de ${formatPercent(risk.monthProjectionPercent)}, ${formatPercent(risk.monthAchievedPercent)} da meta cumprida e ${risk.zeroCount} loja(s) zerada(s).`;
 }
 
 function highestRisk(rows) {
-  return [...rows].sort((a, b) => {
-    const scoreA = (a.monthPercent < 85 ? 1000 : 0) + a.zeroCount * 100 + Math.max(0, 100 - a.monthPercent);
-    const scoreB = (b.monthPercent < 85 ? 1000 : 0) + b.zeroCount * 100 + Math.max(0, 100 - b.monthPercent);
-    return scoreB - scoreA;
-  })[0];
+  return [...rows].sort((a, b) => riskScore(b) - riskScore(a))[0];
+}
+
+function riskScore(row) {
+  const projectionPenalty = Number.isFinite(row.monthProjectionPercent)
+    ? Math.max(0, 100 - row.monthProjectionPercent) * 10
+    : 1500;
+  return projectionPenalty + row.zeroCount * 100 + Math.max(0, 100 - row.dailyPercent);
 }
 
 function findBaseDate(values) {
@@ -360,36 +489,46 @@ function findBaseDate(values) {
   return '';
 }
 
-function value(headers, row, names) {
+function rawValue(headers, row, names) {
   for (const name of names) {
     const index = headers.indexOf(name);
-    if (index >= 0) return number(row[index]);
+    if (index >= 0) return row[index];
   }
-  return 0;
+  return null;
+}
+
+function value(headers, row, names) {
+  return number(rawValue(headers, row, names));
 }
 
 function text(headers, row, names) {
-  for (const name of names) {
-    const index = headers.indexOf(name);
-    if (index >= 0) return String(row[index] ?? '').trim();
-  }
-  return '';
+  const result = rawValue(headers, row, names);
+  return result === null || result === undefined ? '' : String(result).trim();
 }
 
-function number(input) {
+function nullableNumber(input) {
   if (typeof input === 'number' && Number.isFinite(input)) return input;
   const raw = String(input ?? '').trim();
-  if (!raw) return 0;
+  if (!raw) return null;
   const normalized = raw.includes(',')
     ? raw.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.')
     : raw.replace(/[^0-9.-]/g, '');
   const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function number(input) {
+  return nullableNumber(input) ?? 0;
+}
+
+function nullablePercent(input) {
+  const parsed = nullableNumber(input);
+  if (parsed === null) return null;
+  return Math.abs(parsed) <= 2 ? parsed * 100 : parsed;
 }
 
 function percent(input) {
-  const parsed = number(input);
-  return Math.abs(parsed) <= 2 ? parsed * 100 : parsed;
+  return nullablePercent(input) ?? 0;
 }
 
 function money(input) {
@@ -402,9 +541,9 @@ function money(input) {
 }
 
 function signedMoney(input) {
-  const value = Number(input || 0);
-  if (Math.abs(value) < 0.005) return 'R$ 0,00';
-  return `${value > 0 ? '+' : '-'}${money(Math.abs(value))}`;
+  const numericValue = Number(input || 0);
+  if (Math.abs(numericValue) < 0.005) return 'R$ 0,00';
+  return `${numericValue > 0 ? '+' : '-'}${money(Math.abs(numericValue))}`;
 }
 
 function formatPercent(input) {
@@ -432,6 +571,18 @@ function normalize(input) {
 function extractHour(input) {
   const match = String(input || '').match(/(\d{1,2})h(\d{2})/i);
   return match ? `${match[1].padStart(2, '0')}h${match[2]}` : '';
+}
+
+function latestUpdateHour(...inputs) {
+  return inputs
+    .map(extractHour)
+    .filter(Boolean)
+    .sort((a, b) => hourToMinutes(b) - hourToMinutes(a))[0] || '';
+}
+
+function hourToMinutes(input) {
+  const match = String(input || '').match(/(\d{2})h(\d{2})/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : -1;
 }
 
 function formatDate(input) {
