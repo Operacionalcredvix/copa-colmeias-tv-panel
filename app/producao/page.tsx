@@ -12,7 +12,6 @@ const DAILY_ATTENTION = 80;
 
 type Tone = 'positive' | 'attention' | 'critical' | 'neutral';
 type Value = number | string | null | undefined;
-type FreshnessTone = 'fresh' | 'aging' | 'stale';
 
 type Store = {
   name?: string;
@@ -239,7 +238,8 @@ export default function ProducaoPage() {
         <footer className={styles.footer}>
           <div><DatabaseIcon /><span>Fonte: Diária Estática + Projeção de Meta</span></div>
           <div><RefreshIcon /><span>Atualização automática</span></div>
-          <span className={styles.footerView}>Visão executiva</span>
+          <span aria-hidden="true" />
+          <span style={{ justifySelf: 'end', color: '#f58220', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.04em' }}>Visão executiva</span>
         </footer>
       </div>
 
@@ -250,7 +250,7 @@ export default function ProducaoPage() {
 
 function Header({ data, view, panelTime, stale }: { data: Payload; view: ReturnType<typeof buildView>; panelTime: string; stale: boolean }) {
   const freshness = stale
-    ? { tone: 'stale' as FreshnessTone, label: 'Última carga válida' }
+    ? { label: 'Última carga válida', color: '#f04b59' }
     : loadFreshness(data.updatedAt);
 
   return (
@@ -271,7 +271,10 @@ function Header({ data, view, panelTime, stale }: { data: Payload; view: ReturnT
         <div><span>Painel</span><b><ClockIcon />{panelTime}</b></div>
         <i />
         <div><span><SignalIcon /> Última carga</span><b><RefreshIcon />{normalizeHour(data.updatedAt)}</b></div>
-        <small className={styles[freshness.tone]}><em />{freshness.label}</small>
+        <small style={{ color: freshness.color }}>
+          <em style={{ background: freshness.color, boxShadow: `0 0 10px ${freshness.color}99` }} />
+          {freshness.label}
+        </small>
       </div>
     </header>
   );
@@ -305,7 +308,7 @@ function CoordinatorRow({ coordinator }: { coordinator: CoordinatorView }) {
 
       <div className={styles.monthCell}>
         <b className={styles[monthTone(coordinator.monthProjectionPercentNormalized)]}>{formatPercent(coordinator.monthProjectionPercentNormalized)}</b>
-        <small className={styles.mutedText}>{formatPercent(coordinator.monthAchievedPercentNormalized, 1)} realizado</small>
+        <small>{formatPercent(coordinator.monthAchievedPercentNormalized, 1)} realizado</small>
       </div>
 
       <div className={styles.zeroCell}>
@@ -379,6 +382,14 @@ function buildView(data: Payload | null) {
     ? projectedAmount - monthGoal
     : Number(goal.monthProjectionGap || 0);
   const priorities = buildPriorities(zeroStores, stores);
+  const rhythmLabel = paid >= dailyGoal
+    ? 'DIÁRIA ENTREGUE'
+    : pending > 0
+      ? 'CONVERSÃO É A PRIORIDADE'
+      : 'ACELERAR PRODUÇÃO';
+  const rhythmDetail = paid >= dailyGoal
+    ? `${money(paid)} pagos contra diária de ${money(dailyGoal)}`
+    : `${money(pending)} vendidos aguardam pagamento • ${money(newSalesNeed)} ainda faltam em vendas para a diária`;
 
   return {
     paid: money(paid),
@@ -392,8 +403,8 @@ function buildView(data: Payload | null) {
     monthAchieved: formatPercent(monthAchieved, 1),
     monthProjectionGap: moneyShort(projectionGap),
     paidTone: dailyPercent >= 100 ? 'positive' as Tone : dailyPercent >= 50 ? 'attention' as Tone : 'critical' as Tone,
-    rhythmLabel: data?.rhythm?.label || 'ATENÇÃO',
-    rhythmDetail: data?.rhythm?.description || `${money(pending)} vendidos aguardam pagamento`,
+    rhythmLabel,
+    rhythmDetail,
     coordinators,
     priorities,
     diagnosis: buildExecutiveDiagnosis(coordinators, priorities),
@@ -581,18 +592,18 @@ function normalizeHour(value?: string) {
   return colon ? `${colon[1].padStart(2, '0')}h${colon[2]}` : '--h--';
 }
 
-function loadFreshness(value?: string): { tone: FreshnessTone; label: string } {
+function loadFreshness(value?: string): { label: string; color: string } {
   const normalized = normalizeHour(value);
   const match = normalized.match(/(\d{2})h(\d{2})/);
-  if (!match) return { tone: 'stale', label: 'Horário da carga indisponível' };
+  if (!match) return { label: 'Horário da carga indisponível', color: '#f04b59' };
 
   const loadMinutes = Number(match[1]) * 60 + Number(match[2]);
   let age = currentSaoPauloMinutes() - loadMinutes;
   if (age < 0) age += 24 * 60;
 
-  if (age <= 15) return { tone: 'fresh', label: age <= 1 ? 'Dados atualizados agora' : `Dados atualizados • há ${age} min` };
-  if (age <= 30) return { tone: 'aging', label: `Atenção à carga • há ${age} min` };
-  return { tone: 'stale', label: `Carga desatualizada • há ${age} min` };
+  if (age <= 15) return { label: age <= 1 ? 'Dados atualizados agora' : `Dados atualizados • há ${age} min`, color: '#43c96f' };
+  if (age <= 30) return { label: `Atenção à carga • há ${age} min`, color: '#f6ae10' };
+  return { label: `Carga desatualizada • há ${age} min`, color: '#f04b59' };
 }
 
 function currentSaoPauloMinutes() {
