@@ -1,278 +1,664 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import styles from './page.module.css';
 
-const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS ?? 30000);
-const AI_POLL_MS = Number(process.env.NEXT_PUBLIC_AI_POLL_MS ?? 300000);
+const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS || 30000);
+const COORDINATOR_ORDER = ['DAIELLY', 'MARIA FERNANDA', 'MARIELEN'];
+const PROJECTION_CRITICAL = 70;
+const PROJECTION_ATTENTION = 90;
+const DAILY_CRITICAL = 35;
+const DAILY_ATTENTION = 80;
 
+type Tone = 'positive' | 'attention' | 'critical' | 'neutral';
 type Value = number | string | null | undefined;
-type Summary = { contractsToday?: number; productionTodayFormatted?: string; averageTicketFormatted?: string; activeStores?: number; totalStores?: number; zeroStores?: number };
-type Goal = { dailyGoalFormatted?: string; dailyGapFormatted?: string; dailyPercent?: Value };
-type Rhythm = { label?: string; description?: string };
-type Comparison = { labelContracts?: string; labelProduction?: string };
-type Store = { position?: number; name?: string; responsible?: string; contracts?: number; productionFormatted?: string; goalDailyFormatted?: string; goalPercent?: Value; goalGapFormatted?: string };
-type Responsible = { name?: string; contractsToday?: number; productionToday?: number; productionTodayFormatted?: string; dailyGoalFormatted?: string; dailyGapFormatted?: string; dailyPercent?: Value; monthGoalFormatted?: string; projectionGapFormatted?: string; diagnosis?: string; priority?: string };
-type ZeroStore = { name?: string; responsible?: string; dailyGoalFormatted?: string };
-type StructuredItem = { title?: string; detail?: string; responsible?: string; severity?: 'critical' | 'attention' | 'normal' };
-type StructuredAi = { headline?: string; executiveSummary?: string; priority?: string; actions?: StructuredItem[]; risks?: StructuredItem[]; questions?: string[] };
-type AiReading = { status?: string; generatedAt?: string; text?: string; structured?: StructuredAi; priorityResponsible?: string };
+
+type Store = {
+  name?: string;
+  responsible?: string;
+  dailyGoal?: number;
+  dailyGoalFormatted?: string;
+  soldToday?: number;
+  soldTodayFormatted?: string;
+  paidToday?: number;
+  paidTodayFormatted?: string;
+  paidPercent?: number;
+  conversionPending?: number;
+  conversionPendingFormatted?: string;
+  monthPercent?: number;
+  status?: string;
+  insight?: string;
+};
+
+type Responsible = {
+  name?: string;
+  paidToday?: number;
+  paidTodayFormatted?: string;
+  productionTodayFormatted?: string;
+  soldToday?: number;
+  soldTodayFormatted?: string;
+  dailyGoal?: number;
+  dailyGoalFormatted?: string;
+  dailyPercent?: Value;
+  monthGoal?: number;
+  monthGoalFormatted?: string;
+  monthRealized?: number;
+  monthRealizedFormatted?: string;
+  monthPercent?: Value;
+  monthAchievedPercent?: Value;
+  monthProjectionPercent?: Value;
+  monthProjectionAmount?: number;
+  monthProjectionAmountFormatted?: string;
+  monthProjectionGap?: number;
+  monthProjectionGapFormatted?: string;
+  monthDelta?: number;
+  monthDeltaFormatted?: string;
+  projectionGapFormatted?: string;
+  zeroCount?: number;
+  storeCount?: number;
+  status?: string;
+  risk?: string;
+  priority?: string;
+};
+
+type ZeroStore = {
+  name?: string;
+  responsible?: string;
+  dailyGoal?: number;
+  dailyGoalFormatted?: string;
+};
 
 type Payload = {
   ok: boolean;
-  version?: string;
-  updatedAt?: string;
+  viewVersion?: string;
   date?: string;
-  summary?: Summary;
-  goal?: Goal;
-  rhythm?: Rhythm;
-  comparisons?: { yesterday?: Comparison; sevenDayAverage?: Comparison };
-  topStores?: Store[];
-  topStoresRankingMode?: string;
+  updatedAt?: string;
+  summary?: {
+    paidToday?: number;
+    paidTodayFormatted?: string;
+    productionTodayFormatted?: string;
+    soldToday?: number;
+    soldTodayFormatted?: string;
+    conversionPending?: number;
+    conversionPendingFormatted?: string;
+  };
+  goal?: {
+    dailyGoal?: number;
+    dailyGoalFormatted?: string;
+    dailyGap?: number;
+    dailyGapFormatted?: string;
+    soldGap?: number;
+    soldGapFormatted?: string;
+    conversionPending?: number;
+    conversionPendingFormatted?: string;
+    dailyPercent?: Value;
+    monthGoal?: number;
+    monthRealized?: number;
+    monthPercent?: Value;
+    monthAchievedPercent?: Value;
+    monthProjectionPercent?: Value;
+    monthProjectionAmount?: number;
+    monthProjectionGap?: number;
+    monthProjectionGapFormatted?: string;
+    projectionGapFormatted?: string;
+  };
+  rhythm?: { label?: string; description?: string; tone?: string };
   responsiblePerformance?: Responsible[];
   regionalPerformance?: Responsible[];
+  operationalStores?: Store[];
   zeroStores?: ZeroStore[];
-  aiReading?: AiReading;
-  ticker?: string[];
-  missingData?: string[];
+  aiReading?: { text?: string };
   warning?: string;
-  diagnostics?: { warning?: string };
+  missingData?: string[];
+  message?: string;
 };
 
-type AiPayload = { ok?: boolean; ai?: AiReading };
+type CoordinatorView = Responsible & {
+  percent: number;
+  monthProjectionPercentNormalized: number;
+  monthAchievedPercentNormalized: number;
+  zeroCountNormalized: number;
+  storeCountNormalized: number;
+  tone: Tone;
+  actionLabel: string;
+  statusReason: string;
+};
+
+type Priority = {
+  title: string;
+  kind: 'ZERADA' | 'CONVERSÃO' | 'ABAIXO DA DIÁRIA';
+  detail: string;
+  responsible: string;
+  impact: string;
+  impactLabel: string;
+  impactValue: number;
+  tone: Tone;
+};
 
 export default function ProducaoPage() {
   const [data, setData] = useState<Payload | null>(null);
-  const [ai, setAi] = useState<AiReading | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [aiError, setAiError] = useState('');
   const panelTime = useClock();
 
   useEffect(() => {
-    let alive = true;
+    let active = true;
+
     async function load() {
       try {
         const response = await fetch('/api/producao?refresh=1', { cache: 'no-store' });
-        const payload = (await response.json()) as Payload;
-        if (!alive) return;
+        const payload = await response.json() as Payload;
+        if (!response.ok || payload.ok === false) throw new Error(payload.message || 'API indisponível.');
+        if (!active) return;
         setData(payload);
-        setError(payload.ok === false ? 'API retornou erro.' : '');
-      } catch (err) {
-        console.error(err);
-        if (alive) setError('Falha ao carregar dados do radar.');
+        setError('');
+      } catch (requestError) {
+        console.error(requestError);
+        if (active) setError('Falha na atualização. Exibindo a última carga válida.');
       } finally {
-        if (alive) setLoading(false);
+        if (active) setLoading(false);
       }
     }
+
     load();
-    const id = window.setInterval(load, POLL_MS);
-    return () => { alive = false; window.clearInterval(id); };
+    const timer = window.setInterval(load, POLL_MS);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    async function loadAi() {
-      try {
-        const response = await fetch('/api/producao?mode=ai&refresh=1', { cache: 'no-store' });
-        const payload = (await response.json()) as AiPayload;
-        if (!alive) return;
-        setAi(payload.ai || null);
-        setAiError(payload.ai ? '' : 'Retorno de IA indisponível.');
-      } catch (err) {
-        console.error(err);
-        if (alive) setAiError('Falha ao acionar DeepSeek.');
-      }
-    }
-    loadAi();
-    const id = window.setInterval(loadAi, AI_POLL_MS);
-    return () => { alive = false; window.clearInterval(id); };
-  }, []);
+  const view = useMemo(() => buildView(data), [data]);
 
-  const view = useMemo(() => buildView(data, ai, aiError, panelTime), [data, ai, aiError, panelTime]);
-
-  if (loading && !data) return <Shell><Loader text="Carregando painel de gestão..." /></Shell>;
-  if (!data) return <Shell><Loader text={error || 'Não foi possível carregar os dados.'} /></Shell>;
+  if (loading && !data) return <Loading text="Carregando painel executivo..." />;
+  if (!data) return <Loading text="Não foi possível carregar os dados do Radar." />;
 
   return (
-    <Shell>
-      <header className="topbar">
-        <div className="brand"><Logo /><div><b>RADAR DE PRODUÇÃO</b><span>CREDVIX • GESTÃO COMERCIAL</span></div></div>
-        <div className="headline"><span>PAINEL EXECUTIVO EM TEMPO REAL</span><strong>{view.rhythmLabel}</strong><small>{view.rhythmDescription}</small></div>
-        <div className="timebox"><div><span>PAINEL</span><b>{view.panelTime}</b></div><div><span>CARGA</span><b>{view.loadTime}</b></div><em>{data.date || '--/--/----'}</em></div>
-      </header>
+    <main className={styles.screen}>
+      <div className={styles.shell}>
+        <Header data={data} view={view} panelTime={panelTime} stale={Boolean(error)} />
 
-      {view.warning && <div className="warning">{view.warning}</div>}
+        <section className={styles.kpis}>
+          <Kpi
+            icon={<DollarIcon />}
+            label="Pago hoje"
+            value={view.paid}
+            detail={<><strong>{view.dailyPercent}</strong> da diária necessária</>}
+            tone={view.paidTone}
+          />
+          <Kpi
+            icon={<CartIcon />}
+            label="Vendido hoje"
+            value={view.sold}
+            detail={<>{view.pendingPayment} aguardam pagamento</>}
+            tone="neutral"
+          />
+          <Kpi
+            icon={<WarningIcon />}
+            label="Falta hoje"
+            value={view.gap}
+            detail={<>{view.pendingConversion} conversão • {view.newSalesNeed} novas vendas</>}
+            tone="attention"
+          />
+          <Kpi
+            icon={<TargetIcon />}
+            label="Projeção do mês"
+            value={view.monthProjection}
+            detail={<>{view.monthAchieved} realizado • gap proj. {view.monthProjectionGap}</>}
+            tone="projection"
+          />
+        </section>
 
-      <section className="kpis">
-        <Kpi title="Contratos" value={view.contracts} detail={view.contractsDetail} />
-        <Kpi title="Produção" value={view.production} detail={view.productionDetail} accent />
-        <Kpi title="Meta do dia" value={view.dailyGoal} detail={`Gap: ${view.dailyGap}`} good={view.dailyGap === 'R$ 0,00'} />
-        <Kpi title="Lojas" value={view.storesActive} detail={`${view.zeroCount} zeradas`} danger={view.zeroCountNumber > 0} />
-      </section>
+        <section className={styles.mainGrid}>
+          <section className={styles.performancePanel}>
+            <h2>Performance por coordenação</h2>
+            <div className={styles.tableHeader}>
+              <span>Coordenação</span>
+              <span>Pago hoje / diária</span>
+              <span>Ritmo do dia</span>
+              <span>Projeção mensal</span>
+              <span>Lojas zeradas</span>
+              <span>Status</span>
+            </div>
+            <div className={styles.coordinatorList}>
+              {view.coordinators.map((coordinator) => <CoordinatorRow key={coordinator.name} coordinator={coordinator} />)}
+            </div>
+          </section>
 
-      <section className="mainGrid">
-        <Panel title="Quem está batendo meta" className="rankingPanel">
-          <div className="subline"><span>{view.rankingMode}</span><b>{view.goalPercentLabel}</b></div>
-          {view.leader ? <Leader store={view.leader} /> : <Empty text="Sem loja líder." />}
-          <div className="storeList">{view.otherStores.map((store) => <StoreLine key={`${store.position}-${store.name}`} store={store} />)}</div>
-        </Panel>
+          <section className={styles.priorityPanel}>
+            <h2><TargetSmallIcon /> Prioridades agora</h2>
+            <div className={styles.priorityList}>
+              {view.priorities.map((priority, index) => <PriorityRow key={`${priority.title}-${index}`} priority={priority} index={index} />)}
+            </div>
+          </section>
+        </section>
 
-        <div className="rightCol">
-          <Panel title="Quem precisa de ação" className="actionPanel">
-            <div className="actionHead"><span>Coordenadora</span><span>Hoje</span><span>Meta</span><span>Gap</span><span>Motivo</span></div>
-            <div className="actionTable">{view.actions.map((row) => <ActionRow key={row.name} row={row} />)}</div>
-          </Panel>
+        <section className={styles.diagnosis}>
+          <span className={styles.diagnosisIcon}><BrainIcon /></span>
+          <div><b>Diagnóstico executivo</b><p>{view.diagnosis}</p></div>
+        </section>
 
-          <Panel title="Inteligência comercial" className="intelPanel">
-            <DeepSeekCard ai={view.ai} fallback={data.aiReading} error={view.aiError} />
-            <ZeroCard stores={view.zeroStores} total={view.zeroCountNumber} />
-          </Panel>
-        </div>
-      </section>
+        <footer className={styles.footer}>
+          <div><DatabaseIcon /><span>Fonte: Diária Estática + Projeção de Meta</span></div>
+          <div><RefreshIcon /><span>Atualização automática</span></div>
+          <span aria-hidden="true" />
+          <span style={{ justifySelf: 'end', color: '#f58220', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.04em' }}>Visão executiva</span>
+        </footer>
+      </div>
 
-      <footer><b>CREDVIX</b><span>{view.ticker}</span><em>{data.version || 'RADAR'}</em></footer>
-    </Shell>
+      {(error || view.warning) && <div className={styles.warning}>{error || view.warning}</div>}
+    </main>
   );
 }
 
-function buildView(data: Payload | null, ai: AiReading | null, aiError: string, panelTime: string) {
+function Header({ data, view, panelTime, stale }: { data: Payload; view: ReturnType<typeof buildView>; panelTime: string; stale: boolean }) {
+  const freshness = stale
+    ? { label: 'Última carga válida', color: '#f04b59' }
+    : loadFreshness(data.updatedAt);
+
+  return (
+    <header className={styles.header}>
+      <div className={styles.brand}>
+        <div className={styles.wordmark}><span>CRED</span><b>VIX</b></div>
+        <i />
+        <div className={styles.brandTitle}><strong>Radar de produção</strong><span>Gestão comercial</span></div>
+      </div>
+
+      <div className={styles.rhythmCard}>
+        <span>Ritmo da operação</span>
+        <strong>{view.rhythmLabel}</strong>
+        <small>{view.rhythmDetail}</small>
+      </div>
+
+      <div className={styles.timeCard}>
+        <div><span>Painel</span><b><ClockIcon />{panelTime}</b></div>
+        <i />
+        <div><span><SignalIcon /> Última carga</span><b><RefreshIcon />{normalizeHour(data.updatedAt)}</b></div>
+        <small style={{ color: freshness.color }}>
+          <em style={{ background: freshness.color, boxShadow: `0 0 10px ${freshness.color}99` }} />
+          {freshness.label}
+        </small>
+      </div>
+    </header>
+  );
+}
+
+function Kpi({ icon, label, value, detail, tone }: { icon: ReactNode; label: string; value: string; detail: ReactNode; tone: Tone | 'projection' }) {
+  return (
+    <article className={`${styles.kpi} ${styles[tone]}`}>
+      <span className={styles.kpiIcon}>{icon}</span>
+      <div><span>{label}</span><b>{value}</b><small>{detail}</small></div>
+    </article>
+  );
+}
+
+function CoordinatorRow({ coordinator }: { coordinator: CoordinatorView }) {
+  const width = Math.max(2, Math.min(100, coordinator.percent));
+  return (
+    <div className={styles.coordinatorRow}>
+      <div className={styles.coordinatorName}>
+        <span className={`${styles.avatar} ${styles[coordinator.tone]}`}><PersonIcon /></span>
+        <b>{coordinator.name}</b>
+      </div>
+
+      <div className={styles.paidCell}>
+        <b>{moneyCompact(coordinator.paidToday)} <em>/ {moneyCompact(coordinator.dailyGoal)}</em></b>
+        <div className={styles.bar}><i className={styles[coordinator.tone]} style={{ width: `${width}%` }} /></div>
+        <small className={styles[coordinator.tone]}>{formatPercent(coordinator.percent)} da diária</small>
+      </div>
+
+      <strong className={`${styles.achievement} ${styles[coordinator.tone]}`}>{formatPercent(coordinator.percent)}</strong>
+
+      <div className={styles.monthCell}>
+        <b className={styles[monthTone(coordinator.monthProjectionPercentNormalized)]}>{formatPercent(coordinator.monthProjectionPercentNormalized)}</b>
+        <small>{formatPercent(coordinator.monthAchievedPercentNormalized, 1)} realizado</small>
+      </div>
+
+      <div className={styles.zeroCell}>
+        <b className={coordinator.zeroCountNormalized === 0 ? styles.greenText : styles[coordinator.tone]}>{coordinator.zeroCountNormalized} de {coordinator.storeCountNormalized}</b>
+        <small>{coordinator.storeCountNormalized ? Math.round((coordinator.zeroCountNormalized / coordinator.storeCountNormalized) * 100) : 0}%</small>
+      </div>
+
+      <div className={styles.statusCell}>
+        <span className={`${styles.statusBadge} ${styles[coordinator.tone]}`}>{toneLabel(coordinator.tone)}</span>
+        <small>{coordinator.statusReason}</small>
+      </div>
+    </div>
+  );
+}
+
+function PriorityRow({ priority, index }: { priority: Priority; index: number }) {
+  return (
+    <div className={`${styles.priorityRow} ${styles[priority.tone]}`}>
+      <em>{index + 1}</em>
+      <i />
+      <div className={styles.priorityText}>
+        <b>{priority.title}</b>
+        <span>{priority.kind} • {priority.detail}</span>
+        <small>Responsável: {priority.responsible}</small>
+      </div>
+      <div className={styles.impact}><span>{priority.impactLabel}</span><b>{priority.impact}</b></div>
+    </div>
+  );
+}
+
+function buildView(data: Payload | null) {
   const summary = data?.summary || {};
   const goal = data?.goal || {};
-  const rhythm = data?.rhythm || {};
-  const comparisons = data?.comparisons || {};
-  const stores = Array.isArray(data?.topStores) ? data!.topStores!.slice(0, 6) : [];
-  const responsibles = Array.isArray(data?.responsiblePerformance) ? data!.responsiblePerformance! : data?.regionalPerformance || [];
-  const zeroStores = Array.isArray(data?.zeroStores) ? data!.zeroStores! : [];
-  const zeroCount = Number(summary.zeroStores ?? zeroStores.length ?? 0);
-  const zeroByResponsible = countZeroByResponsible(zeroStores);
-  const dailyPercent = num(goal.dailyPercent);
-  const warning = data?.diagnostics?.warning || data?.warning || (data?.missingData?.length ? `Dados pendentes: ${data.missingData.join(', ')}` : '');
-  const ticker = (data?.ticker?.length ? data.ticker : [
-    `Contratos hoje: ${summary.contractsToday ?? 0}`,
-    `Produção hoje: ${summary.productionTodayFormatted || 'R$ 0,00'}`,
-    `Meta do dia: ${goal.dailyGoalFormatted || 'Sem meta'}`,
-    `Gap: ${goal.dailyGapFormatted || 'Sem gap'}`,
-    `Zeradas: ${zeroCount}`
-  ]).join('   •   ');
+  const responsibleRows = Array.isArray(data?.responsiblePerformance) ? data!.responsiblePerformance! : data?.regionalPerformance || [];
+  const allowed = new Set(COORDINATOR_ORDER);
+  const stores = (Array.isArray(data?.operationalStores) ? data!.operationalStores! : [])
+    .filter((store) => allowed.has(norm(store.responsible)));
+  const zeroStores = (Array.isArray(data?.zeroStores) ? data!.zeroStores! : [])
+    .filter((store) => allowed.has(norm(store.responsible)));
+
+  const coordinators = COORDINATOR_ORDER.map((expectedName) => responsibleRows.find((row) => norm(row.name) === expectedName))
+    .filter(Boolean)
+    .map((row) => buildCoordinator(row as Responsible, stores, zeroStores));
+
+  const hasCoordinatorData = coordinators.length > 0;
+  const paid = hasCoordinatorData
+    ? coordinators.reduce((sum, item) => sum + Number(item.paidToday || 0), 0)
+    : Number(summary.paidToday || 0);
+  const sold = hasCoordinatorData
+    ? coordinators.reduce((sum, item) => sum + Number(item.soldToday || 0), 0)
+    : Number(summary.soldToday || 0);
+  const dailyGoal = hasCoordinatorData
+    ? coordinators.reduce((sum, item) => sum + Number(item.dailyGoal || 0), 0)
+    : Number(goal.dailyGoal || 0);
+  const monthGoal = coordinators.reduce((sum, item) => sum + Number(item.monthGoal || 0), 0) || Number(goal.monthGoal || 0);
+  const monthRealized = coordinators.reduce((sum, item) => sum + Number(item.monthRealized || 0), 0) || Number(goal.monthRealized || 0);
+  const hasProjectionAmounts = coordinators.length > 0 && coordinators.every((item) => Number.isFinite(Number(item.monthProjectionAmount)));
+  const projectedAmount = hasProjectionAmounts
+    ? coordinators.reduce((sum, item) => sum + Number(item.monthProjectionAmount || 0), 0)
+    : Number(goal.monthProjectionAmount || 0);
+
+  const dailyPercent = dailyGoal > 0 ? (paid / dailyGoal) * 100 : toPercent(goal.dailyPercent);
+  const monthAchieved = monthGoal > 0 ? (monthRealized / monthGoal) * 100 : toPercent(goal.monthAchievedPercent);
+  const monthProjection = monthGoal > 0 && projectedAmount > 0
+    ? (projectedAmount / monthGoal) * 100
+    : toPercent(goal.monthProjectionPercent ?? goal.monthPercent);
+  const pending = Math.max(0, sold - paid);
+  const dailyGap = Math.max(0, dailyGoal - paid);
+  const newSalesNeed = Math.max(0, dailyGoal - sold);
+  const projectionGap = projectedAmount > 0 && monthGoal > 0
+    ? projectedAmount - monthGoal
+    : Number(goal.monthProjectionGap || 0);
+  const priorities = buildPriorities(zeroStores, stores);
+  const rhythmLabel = paid >= dailyGoal
+    ? 'DIÁRIA ENTREGUE'
+    : pending > 0
+      ? 'CONVERSÃO É A PRIORIDADE'
+      : 'ACELERAR PRODUÇÃO';
+  const rhythmDetail = paid >= dailyGoal
+    ? `${money(paid)} pagos contra diária de ${money(dailyGoal)}`
+    : `${money(pending)} vendidos aguardam pagamento • ${money(newSalesNeed)} ainda faltam em vendas para a diária`;
 
   return {
-    contracts: String(summary.contractsToday ?? 0),
-    production: summary.productionTodayFormatted || 'R$ 0,00',
-    dailyGoal: shortMissing(goal.dailyGoalFormatted, 'Sem meta'),
-    dailyGap: shortMissing(goal.dailyGapFormatted, 'Sem gap'),
-    storesActive: `${summary.activeStores ?? 0}/${summary.totalStores ?? 0}`,
-    zeroCount: String(zeroCount),
-    zeroCountNumber: zeroCount,
-    contractsDetail: comparisons.yesterday?.labelContracts || 'vs ontem indisponível',
-    productionDetail: comparisons.sevenDayAverage?.labelProduction || 'vs média 7d indisponível',
-    rhythmLabel: rhythm.label || 'RITMO INDETERMINADO',
-    rhythmDescription: rhythm.description || 'Sem leitura por horário.',
-    rankingMode: data?.topStoresRankingMode === 'ATINGIMENTO_META' ? 'Ranking por % da meta diária' : 'Ranking por produção em R$',
-    goalPercentLabel: dailyPercent !== null ? `${dailyPercent}% da meta do dia` : 'Meta do dia ausente',
-    leader: stores[0] || null,
-    otherStores: stores.slice(1),
-    actions: responsibles.map((row) => buildAction(row, zeroByResponsible)).sort((a, b) => a.score - b.score).slice(0, 5),
-    zeroStores: zeroStores.slice(0, 5),
-    ai,
-    aiError,
-    warning,
-    ticker,
-    panelTime,
-    loadTime: normalizeLoadHour(data?.updatedAt || '--h--')
+    paid: money(paid),
+    sold: money(sold),
+    gap: money(dailyGap),
+    dailyPercent: formatPercent(dailyPercent),
+    pendingPayment: moneyShort(pending),
+    pendingConversion: moneyShort(Math.min(pending, dailyGap)),
+    newSalesNeed: moneyShort(newSalesNeed),
+    monthProjection: formatPercent(monthProjection),
+    monthAchieved: formatPercent(monthAchieved, 1),
+    monthProjectionGap: moneyShort(projectionGap),
+    paidTone: dailyPercent >= 100 ? 'positive' as Tone : dailyPercent >= 50 ? 'attention' as Tone : 'critical' as Tone,
+    rhythmLabel,
+    rhythmDetail,
+    coordinators,
+    priorities,
+    diagnosis: buildExecutiveDiagnosis(coordinators, priorities),
+    warning: data?.warning || (data?.missingData?.length ? `Dados pendentes: ${data.missingData.join(', ')}` : '')
   };
 }
 
-function buildAction(row: Responsible, zeroByResponsible: Record<string, number>) {
-  const percent = num(row.dailyPercent);
-  const zeroCount = zeroByResponsible[norm(row.name)] || 0;
-  const projectionNegative = String(row.projectionGapFormatted || '').trim().startsWith('-');
-  const hasProduction = Number(row.productionToday || 0) > 0 || Boolean(row.productionTodayFormatted && row.productionTodayFormatted !== 'R$ 0,00');
-  let score = 999;
-  let motive = 'Monitorar';
+function buildCoordinator(row: Responsible, stores: Store[], zeroStores: ZeroStore[]): CoordinatorView {
+  const coordinatorStores = stores.filter((store) => norm(store.responsible) === norm(row.name));
+  const paid = Number(row.paidToday || 0);
+  const dailyGoal = Number(row.dailyGoal || 0);
+  const monthProjectionPercentNormalized = toPercent(row.monthProjectionPercent ?? row.monthPercent);
+  const monthAchievedPercentNormalized = toPercent(row.monthAchievedPercent);
+  const percent = dailyGoal > 0 ? (paid / dailyGoal) * 100 : 0;
+  const zeroCountNormalized = Number(row.zeroCount ?? zeroStores.filter((store) => norm(store.responsible) === norm(row.name)).length);
+  const storeCountNormalized = Number(row.storeCount ?? coordinatorStores.length);
+  const tone = coordinatorTone(monthProjectionPercentNormalized, zeroCountNormalized, percent);
+  const statusReason = coordinatorReason(monthProjectionPercentNormalized, zeroCountNormalized, percent);
 
-  if (projectionNegative) { score = 0; motive = `Projeção negativa${zeroCount ? ` • ${zeroCount} zeradas` : ''}`; }
-  else if (zeroCount) { score = 20 - zeroCount; motive = `${zeroCount} lojas zeradas`; }
-  else if (percent !== null && percent < 100) { score = 50 + percent; motive = 'Abaixo da meta diária'; }
-  else if (percent === null && hasProduction) { score = 80; motive = 'Produção sem diária'; }
-  else if (percent !== null) { score = 200 + percent; motive = 'No ritmo'; }
-
-  return { ...row, score, motive };
+  return {
+    ...row,
+    percent,
+    monthProjectionPercentNormalized,
+    monthAchievedPercentNormalized,
+    zeroCountNormalized,
+    storeCountNormalized,
+    tone,
+    statusReason,
+    actionLabel: tone === 'critical' ? 'Ação imediata' : tone === 'attention' ? 'Acompanhar' : 'Controlado'
+  };
 }
 
-function countZeroByResponsible(stores: ZeroStore[]) {
-  return stores.reduce<Record<string, number>>((acc, store) => {
-    const key = norm(store.responsible);
-    if (key) acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
+function coordinatorTone(projection: number, zeroCount: number, dailyPercent: number): Tone {
+  if (projection < PROJECTION_CRITICAL || zeroCount >= 3 || dailyPercent < DAILY_CRITICAL) return 'critical';
+  if (projection < PROJECTION_ATTENTION || zeroCount > 0 || dailyPercent < DAILY_ATTENTION) return 'attention';
+  return 'positive';
+}
+
+function coordinatorReason(projection: number, zeroCount: number, dailyPercent: number) {
+  if (projection < PROJECTION_CRITICAL) return 'PROJEÇÃO';
+  if (zeroCount >= 3) return `${zeroCount} ZERADAS`;
+  if (dailyPercent < DAILY_CRITICAL) return 'RITMO DO DIA';
+  if (projection < PROJECTION_ATTENTION) return 'PROJEÇÃO';
+  if (zeroCount > 0) return `${zeroCount} ${zeroCount === 1 ? 'ZERADA' : 'ZERADAS'}`;
+  if (dailyPercent < 100) return 'DIÁRIA';
+  return 'CONTROLADO';
+}
+
+function buildPriorities(zeroStores: ZeroStore[], stores: Store[]): Priority[] {
+  const zeroNames = new Set(zeroStores.map((store) => norm(store.name)));
+
+  const zeroPriorities: Priority[] = [...zeroStores]
+    .sort((a, b) => Number(b.dailyGoal || 0) - Number(a.dailyGoal || 0))
+    .map((store, index) => {
+      const gap = Math.max(0, Number(store.dailyGoal || 0));
+      return {
+        title: String(store.name || 'Loja zerada').toUpperCase(),
+        kind: 'ZERADA' as const,
+        detail: 'Acionar carteira agora',
+        responsible: store.responsible || 'Sem coordenação',
+        impact: moneyCompact(gap),
+        impactLabel: 'Gap recuperável',
+        impactValue: gap,
+        tone: (index === 0 ? 'critical' : index < 3 ? 'attention' : 'neutral') as Tone
+      };
+    });
+
+  const conversionPriorities: Priority[] = stores
+    .filter((store) => !zeroNames.has(norm(store.name)) && Number(store.conversionPending || 0) > 0 && Number(store.dailyGoal || 0) > Number(store.paidToday || 0))
+    .map((store) => {
+      const dailyGap = Math.max(0, Number(store.dailyGoal || 0) - Number(store.paidToday || 0));
+      const pending = Math.max(0, Number(store.conversionPending || 0));
+      const recoverable = Math.min(dailyGap, pending);
+      return {
+        store,
+        priority: {
+          title: String(store.name || 'Loja').toUpperCase(),
+          kind: 'CONVERSÃO' as const,
+          detail: `Converter ${moneyShort(pending)} já vendidos`,
+          responsible: store.responsible || 'Sem coordenação',
+          impact: moneyCompact(recoverable),
+          impactLabel: 'Gap recuperável',
+          impactValue: recoverable,
+          tone: 'attention' as Tone
+        }
+      };
+    })
+    .sort((a, b) => b.priority.impactValue - a.priority.impactValue)
+    .map((item) => item.priority);
+
+  const priorityNames = new Set([...zeroPriorities, ...conversionPriorities].map((item) => norm(item.title)));
+  const gapPriorities: Priority[] = stores
+    .filter((store) => !priorityNames.has(norm(store.name)) && Number(store.dailyGoal || 0) > Number(store.paidToday || 0))
+    .map((store) => {
+      const gap = Math.max(0, Number(store.dailyGoal || 0) - Number(store.paidToday || 0));
+      return {
+        title: String(store.name || 'Loja').toUpperCase(),
+        kind: 'ABAIXO DA DIÁRIA' as const,
+        detail: 'Recuperar produção ainda hoje',
+        responsible: store.responsible || 'Sem coordenação',
+        impact: moneyCompact(gap),
+        impactLabel: 'Gap recuperável',
+        impactValue: gap,
+        tone: 'neutral' as Tone
+      };
+    })
+    .sort((a, b) => b.impactValue - a.impactValue);
+
+  return [...zeroPriorities, ...conversionPriorities, ...gapPriorities].slice(0, 5);
+}
+
+function buildExecutiveDiagnosis(coordinators: CoordinatorView[], priorities: Priority[]) {
+  const risk = [...coordinators].sort((a, b) => coordinatorRiskScore(b) - coordinatorRiskScore(a))[0];
+  if (!risk) return 'Sem leitura consolidada por coordenação nesta atualização.';
+
+  const related = priorities.filter((priority) => norm(priority.responsible) === norm(risk.name)).slice(0, 2);
+  const action = related.length
+    ? `Atuar primeiro em ${related.map((item) => titleCase(item.title)).join(' e ')}, com ${moneyShort(related.reduce((sum, item) => sum + item.impactValue, 0))} de gap recuperável.`
+    : 'Reforçar a atuação da coordenação nas lojas abaixo da diária.';
+
+  return `Prioridade: ${risk.name} — projeção de ${formatPercent(risk.monthProjectionPercentNormalized)}, ${formatPercent(risk.monthAchievedPercentNormalized, 1)} realizado e ${risk.zeroCountNormalized} loja(s) zerada(s). ${action}`;
+}
+
+function coordinatorRiskScore(row: CoordinatorView) {
+  return Math.max(0, 100 - row.monthProjectionPercentNormalized) * 10
+    + row.zeroCountNormalized * 120
+    + Math.max(0, 100 - row.percent);
+}
+
+function toneLabel(tone: Tone) {
+  if (tone === 'critical') return 'Crítico';
+  if (tone === 'attention') return 'Atenção';
+  if (tone === 'positive') return 'Controlado';
+  return 'Monitorar';
+}
+
+function monthTone(percent: number): Tone {
+  return percent >= 100 ? 'positive' : percent >= PROJECTION_ATTENTION ? 'attention' : 'critical';
+}
+
+function toPercent(value: Value) {
+  const parsed = numeric(value);
+  if (parsed === null) return 0;
+  return Math.abs(parsed) <= 2 ? parsed * 100 : parsed;
+}
+
+function numeric(value: Value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const raw = String(value ?? '').trim();
+  if (!raw || /AUSENTE|SEM/i.test(raw)) return null;
+  const normalized = raw.includes(',')
+    ? raw.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.')
+    : raw.replace(/[^0-9.-]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatPercent(value: number, digits = 0) {
+  return `${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
+}
+
+function money(value: number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
+}
+
+function moneyCompact(value: Value) {
+  const parsed = Number(value || 0);
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(parsed);
+}
+
+function moneyShort(value: Value) {
+  const parsed = Number(value || 0);
+  const absolute = Math.abs(parsed);
+  const sign = parsed < 0 ? '-' : '';
+  if (absolute >= 1_000_000) return `${sign}R$ ${(absolute / 1_000_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`;
+  if (absolute >= 1_000) return `${sign}R$ ${(absolute / 1_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mil`;
+  return `${sign}${money(absolute)}`;
+}
+
+function normalizeHour(value?: string) {
+  const raw = String(value || '').trim();
+  const direct = raw.match(/(\d{1,2})h(\d{2})/i);
+  if (direct) return `${direct[1].padStart(2, '0')}h${direct[2]}`;
+  const colon = raw.match(/(\d{1,2}):(\d{2})/);
+  return colon ? `${colon[1].padStart(2, '0')}h${colon[2]}` : '--h--';
+}
+
+function loadFreshness(value?: string): { label: string; color: string } {
+  const normalized = normalizeHour(value);
+  const match = normalized.match(/(\d{2})h(\d{2})/);
+  if (!match) return { label: 'Horário da carga indisponível', color: '#f04b59' };
+
+  const loadMinutes = Number(match[1]) * 60 + Number(match[2]);
+  let age = currentSaoPauloMinutes() - loadMinutes;
+  if (age < 0) age += 24 * 60;
+
+  if (age <= 15) return { label: age <= 1 ? 'Dados atualizados agora' : `Dados atualizados • há ${age} min`, color: '#43c96f' };
+  if (age <= 30) return { label: `Atenção à carga • há ${age} min`, color: '#f6ae10' };
+  return { label: `Carga desatualizada • há ${age} min`, color: '#f04b59' };
+}
+
+function currentSaoPauloMinutes() {
+  const parts = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
+  return hour * 60 + minute;
+}
+
+function currentHourLabel() {
+  const parts = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+  const hour = parts.find((part) => part.type === 'hour')?.value || '--';
+  const minute = parts.find((part) => part.type === 'minute')?.value || '--';
+  return `${hour}h${minute}`;
+}
+
+function titleCase(value: string) {
+  return String(value || '').toLocaleLowerCase('pt-BR').replace(/(^|[\s-])([\p{L}])/gu, (_, prefix, letter) => `${prefix}${letter.toLocaleUpperCase('pt-BR')}`);
+}
+
+function norm(value?: string) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
 }
 
 function useClock() {
-  const [time, setTime] = useState(formatNow());
-  useEffect(() => { const id = window.setInterval(() => setTime(formatNow()), 30000); return () => window.clearInterval(id); }, []);
+  const [time, setTime] = useState('--h--');
+  useEffect(() => {
+    const update = () => setTime(currentHourLabel());
+    update();
+    const timer = window.setInterval(update, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
   return time;
 }
 
-function formatNow() {
-  return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(':', 'h');
+function Loading({ text }: { text: string }) {
+  return <main className={styles.screen}><div className={styles.loading}><b>RADAR DE PRODUÇÃO</b><span>{text}</span></div></main>;
 }
 
-function normalizeLoadHour(value: string) {
-  const match = String(value || '').match(/(\d{1,2})h(\d{2})/);
-  if (!match) return value || '--h--';
-  const hour = (Number(match[1]) + 3) % 24;
-  return `${String(hour).padStart(2, '0')}h${match[2]}`;
+function Svg({ children, viewBox = '0 0 24 24' }: { children: ReactNode; viewBox?: string }) {
+  return <svg viewBox={viewBox} aria-hidden="true" focusable="false">{children}</svg>;
 }
-
-function Shell({ children }: { children: ReactNode }) { return <main className="screen"><Style />{children}</main>; }
-function Loader({ text }: { text: string }) { return <div className="loader"><Logo /><h1>RADAR DE PRODUÇÃO</h1><p>{text}</p></div>; }
-function Panel({ title, children, className = '' }: { title: string; children: ReactNode; className?: string }) { return <section className={`panel ${className}`}><h2>{title}</h2>{children}</section>; }
-function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }
-
-function Kpi({ title, value, detail, accent, danger, good }: { title: string; value: string; detail: string; accent?: boolean; danger?: boolean; good?: boolean }) {
-  return <div className={`kpi ${accent ? 'accent' : ''} ${danger ? 'danger' : ''} ${good ? 'good' : ''}`}><span>{title}</span><b>{value}</b><small>{detail}</small></div>;
-}
-
-function Leader({ store }: { store: Store }) {
-  return <div className="leader"><em>1</em><div><span>Loja líder</span><b>{store.name || '-'}</b><small>{store.responsible || 'Sem coord.'}</small></div><strong>{store.productionFormatted || 'R$ 0,00'}</strong><i>{fmtPercent(store.goalPercent)}</i><small>{shortMissing(store.goalDailyFormatted, 'Sem meta')} • Gap {shortMissing(store.goalGapFormatted, 'Sem gap')}</small></div>;
-}
-
-function StoreLine({ store }: { store: Store }) {
-  const percent = num(store.goalPercent);
-  const width = percent === null ? 0 : Math.max(5, Math.min(100, percent));
-  return <div className="storeRow"><em>{store.position ?? '-'}</em><div><b>{store.name || '-'}</b><small>{store.responsible || 'Sem coord.'}</small></div><span>{store.contracts ?? 0} ct</span><strong>{store.productionFormatted || 'R$ 0,00'}</strong><div className="goalbar"><i style={{ width: `${width}%` }} /><small>{fmtPercent(store.goalPercent)} • {shortMissing(store.goalDailyFormatted, 'Sem meta')}</small></div></div>;
-}
-
-function ActionRow({ row }: { row: Responsible & { motive?: string } }) {
-  return <div className="actionRow"><b>{row.name || '-'}</b><span>{row.productionTodayFormatted || 'R$ 0,00'}</span><strong>{fmtPercent(row.dailyPercent)}</strong><small>{shortMissing(row.dailyGapFormatted, 'Sem gap')}</small><em>{row.motive || 'Monitorar'}</em></div>;
-}
-
-function DeepSeekCard({ ai, fallback, error }: { ai: AiReading | null; fallback?: AiReading; error?: string }) {
-  const reading = ai?.structured ? ai : fallback?.structured ? fallback : ai;
-  const structured = reading?.structured;
-  const status = ai?.status || fallback?.status || 'SEM LEITURA';
-  const active = status === 'OK';
-
-  if (!structured) {
-    return <div className="deepseek"><div><span>IA COMERCIAL</span><b>{active ? 'IA ativa' : 'Aguardando IA'}</b><em>{status}</em></div><p>{active ? 'IA ativa, mas retorno estruturado indisponível.' : error || 'Aguardando DeepSeek estruturado.'}</p></div>;
-  }
-
-  return <div className={`deepseek ${active ? 'active' : ''}`}><div><span>IA COMERCIAL</span><b>{clean(structured.headline || 'DeepSeek ativo')}</b><em>{status} • {reading?.generatedAt || '--'}</em></div><p>{clean(structured.executiveSummary || '')}</p><ul>{(structured.actions || []).slice(0, 3).map((item, index) => <li key={index}><b>{clean(item.title)}</b><span>{clean(item.detail)}</span></li>)}</ul></div>;
-}
-
-function ZeroCard({ stores, total }: { stores: ZeroStore[]; total: number }) {
-  return <div className="zeros"><div><span>Lojas zeradas</span><b>{total}</b></div><section>{stores.length ? stores.map((store) => <p key={`${store.responsible}-${store.name}`}><strong>{store.name}</strong><span>{store.responsible || 'Sem coord.'}</span><em>{shortMissing(store.dailyGoalFormatted, 'Sem meta')}</em></p>) : <Empty text="Nenhuma loja zerada." />}</section></div>;
-}
-
-function num(value: Value) { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
-function fmtPercent(value: Value) { const n = num(value); return n === null ? 'Sem diária' : `${n}%`; }
-function shortMissing(value: Value, label: string) { return !value || String(value).includes('DADO AUSENTE') ? label : String(value); }
-function norm(value: Value) { return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase(); }
-function clean(value: Value) { return String(value || '').replace(/[#*_`|>-]{2,}/g, ' ').replace(/\s+/g, ' ').trim(); }
-function Logo() { return <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 5 55 18v28L32 59 9 46V18L32 5Z"/><path d="M22 25 32 19l10 6v12l-10 6-10-6V25Z"/></svg>; }
-
-function Style() {
-  return <style jsx global>{`
-    *{box-sizing:border-box}html,body{margin:0;background:#020812;overflow:hidden}.screen{width:100vw;height:100vh;overflow:hidden;color:#fff;font-family:Inter,Arial,sans-serif;background:radial-gradient(circle at 8% 0%,rgba(255,193,43,.14),transparent 30%),linear-gradient(135deg,#020812,#06182b 55%,#020812)}.screen:before{content:'';position:absolute;inset:0;opacity:.12;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:30px 30px}.topbar,.kpis,.mainGrid,footer,.warning{position:relative;z-index:2}.topbar{height:86px;padding:12px 18px;display:grid;grid-template-columns:330px 1fr 210px;gap:18px;align-items:center;border-bottom:1px solid rgba(255,255,255,.1);background:rgba(2,8,18,.84)}.brand{display:flex;gap:13px;align-items:center}.brand svg{width:46px;height:46px;padding:9px;border:1px solid rgba(255,193,43,.3);border-radius:15px;background:rgba(255,193,43,.07)}svg path{fill:none;stroke:#ffc12b;stroke-width:4;stroke-linejoin:round}.brand b{display:block;font-size:22px;font-weight:1000}.brand span,.headline span{display:block;color:#ffc12b;font-size:11px;font-weight:900;letter-spacing:.14em}.headline{text-align:center;min-width:0}.headline strong{display:block;margin-top:3px;font-size:30px;font-style:italic;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.headline small{display:block;margin-top:6px;color:rgba(255,255,255,.62);font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.timebox{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:9px 10px;border-radius:16px;border:1px solid rgba(255,193,43,.24);background:rgba(255,193,43,.07)}.timebox span{display:block;color:rgba(255,255,255,.58);font-size:9px;font-weight:900}.timebox b{display:block;color:#ffc12b;font-size:25px;line-height:1}.timebox em{grid-column:1/3;color:rgba(255,255,255,.58);font-size:10px;text-align:right;font-style:normal}.warning{height:28px;padding:6px 18px;background:rgba(255,91,91,.16);color:#ffd4d4;font-size:12px;font-weight:900}.kpis{height:100px;padding:11px 18px 0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.kpi,.panel{border:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(9,23,39,.96),rgba(5,15,27,.96));box-shadow:0 16px 34px rgba(0,0,0,.24)}.kpi{position:relative;overflow:hidden;border-radius:18px;padding:12px 16px}.kpi:before{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:#2f92ff}.kpi.accent:before{background:#ffc12b}.kpi.good:before{background:#59e49b}.kpi.danger:before{background:#ff5f6d}.kpi span{display:block;color:rgba(255,255,255,.66);font-size:12px;font-weight:900;text-transform:uppercase}.kpi b{display:block;margin-top:4px;font-size:29px;line-height:1;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpi.accent b{color:#ffc12b}.kpi.good b{color:#62e8a2}.kpi.danger b{color:#ff7777}.kpi small{display:block;margin-top:7px;color:rgba(255,255,255,.62);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mainGrid{height:calc(100vh - 230px);padding:12px 18px 9px;display:grid;grid-template-columns:58% 42%;gap:14px}.warning~.kpis+.mainGrid{height:calc(100vh - 258px)}.rightCol{display:grid;grid-template-rows:43% 57%;gap:14px;min-height:0}.panel{border-radius:20px;padding:14px 16px;overflow:hidden;min-height:0}.panel h2{margin:0 0 8px;color:#ffc12b;font-size:20px;line-height:1;font-weight:1000;text-transform:uppercase}.subline{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px;color:rgba(255,255,255,.62);font-size:12px;font-weight:900}.subline b{color:#ffc12b}.leader{height:92px;padding:13px;border-radius:17px;border:1px solid rgba(255,193,43,.2);background:rgba(255,193,43,.07);display:grid;grid-template-columns:50px 1fr 132px 70px;gap:12px;align-items:center}.leader>em{width:46px;height:46px;display:grid;place-items:center;border-radius:15px;background:#ffc12b;color:#07111c;font-size:26px;font-style:normal;font-weight:1000}.leader div{min-width:0}.leader span{color:#ffc12b;font-size:10px;font-weight:1000;text-transform:uppercase}.leader div b{display:block;margin-top:4px;font-size:25px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.leader small{grid-column:2/5;color:rgba(255,255,255,.66);font-size:11px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.leader strong{color:#ffc12b;font-size:16px;text-align:right}.leader i{font-style:normal;font-size:22px;font-weight:1000;text-align:right}.storeList{display:grid;gap:7px;margin-top:8px}.storeRow{display:grid;grid-template-columns:32px minmax(0,1fr) 54px 112px 180px;gap:8px;align-items:center;padding:7px 10px;border-radius:13px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}.storeRow em{width:28px;height:28px;display:grid;place-items:center;border-radius:10px;background:rgba(255,193,43,.16);color:#ffc12b;font-style:normal;font-weight:1000}.storeRow b{display:block;font-size:15px;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.storeRow small{display:block;margin-top:3px;color:rgba(255,255,255,.58);font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.storeRow span{color:#65e29f;font-size:13px;font-weight:1000;text-align:right}.storeRow strong{color:#ffc12b;font-size:14px;text-align:right}.goalbar{position:relative;padding-top:13px}.goalbar:before{content:'';position:absolute;top:2px;left:0;right:0;height:8px;border-radius:999px;background:rgba(255,255,255,.09)}.goalbar i{position:absolute;top:2px;left:0;height:8px;border-radius:999px;background:linear-gradient(90deg,#59e49b,#ffd052)}.actionPanel{display:grid;grid-template-rows:auto auto 1fr}.actionHead,.actionRow{display:grid;grid-template-columns:minmax(0,1.15fr) 94px 74px 76px minmax(0,1.1fr);gap:8px;align-items:center}.actionHead{padding:0 10px 6px;color:rgba(255,255,255,.48);font-size:9px;font-weight:1000;text-transform:uppercase}.actionTable{display:grid;gap:6px}.actionRow{padding:7px 10px;border-radius:11px;background:rgba(255,255,255,.045);border-left:4px solid #7aa9ff}.actionRow:first-child{border-left-color:#ff6b6b;background:rgba(255,91,91,.08)}.actionRow b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.actionRow span{color:rgba(255,255,255,.72);font-size:11px;font-weight:900;text-align:right}.actionRow strong{color:#ffc12b;font-size:15px;text-align:right;white-space:nowrap}.actionRow small{color:rgba(255,255,255,.64);font-size:10px;font-weight:900;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.actionRow em{color:rgba(255,255,255,.75);font-size:10px;font-style:normal;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.intelPanel{display:grid;grid-template-rows:auto 1fr .9fr;gap:8px}.deepseek,.zeros{min-height:0;border-radius:14px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:10px;overflow:hidden}.deepseek.active{border-color:rgba(89,228,155,.35)}.deepseek>div,.zeros>div{display:flex;align-items:center;justify-content:space-between;gap:8px}.deepseek span,.zeros span{color:#ffc12b;font-size:10px;font-weight:1000;text-transform:uppercase}.deepseek b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.deepseek em{color:rgba(255,255,255,.54);font-size:10px;font-style:normal;font-weight:900;white-space:nowrap}.deepseek p{margin:7px 0 0;color:rgba(255,255,255,.88);font-size:12px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.deepseek ul{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0 0;padding:0;list-style:none}.deepseek li{padding:7px;border-radius:10px;background:rgba(255,255,255,.045);min-width:0}.deepseek li b{display:block;color:#fff;font-size:11px}.deepseek li span{display:block;margin-top:3px;color:rgba(255,255,255,.65);font-size:9px;letter-spacing:0;text-transform:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.zeros>div b{color:#ff7474;font-size:24px}.zeros section{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-top:7px}.zeros p{margin:0;padding:6px 7px;border-radius:9px;background:rgba(255,255,255,.045);display:grid;grid-template-columns:minmax(0,1fr) 60px;gap:3px 6px}.zeros strong{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.zeros p span{color:rgba(255,255,255,.58);font-size:9px}.zeros p em{grid-column:1/3;color:#ffc12b;font-size:9px;font-style:normal;font-weight:900}.empty{height:100%;display:grid;place-items:center;color:rgba(255,255,255,.46);font-weight:900}footer{height:44px;display:grid;grid-template-columns:110px 1fr 130px;align-items:center;gap:12px;padding:0 18px;border-top:1px solid rgba(255,255,255,.1);background:rgba(2,8,18,.86)}footer b{color:#ffc12b}footer span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(255,255,255,.88);font-size:13px;font-weight:900}footer em{text-align:right;color:rgba(255,255,255,.5);font-style:normal;font-size:10px;font-weight:900}.loader{position:relative;z-index:2;margin:23vh auto 0;width:520px;padding:38px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(9,23,39,.96);text-align:center}.loader svg{width:42px;height:42px}.loader h1{margin:16px 0 8px;font-size:34px}.loader p{margin:0;color:rgba(255,255,255,.7)}
-  `}</style>;
-}
+function DollarIcon() { return <Svg><path d="M12 3v18M16 7.2c-.8-1.1-2.1-1.7-4-1.7-2.4 0-4 1.2-4 3s1.4 2.7 4.2 3.4c2.6.6 3.8 1.5 3.8 3.3 0 2-1.8 3.3-4.4 3.3-2 0-3.6-.7-4.6-2" /></Svg>; }
+function CartIcon() { return <Svg><path d="M3 4h2l2.2 10.2h9.9l2-7.2H6.1M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" /></Svg>; }
+function WarningIcon() { return <Svg><path d="M12 3 2.8 20h18.4L12 3Z" /><path d="M12 9v5m0 3h.01" /></Svg>; }
+function TargetIcon() { return <Svg><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><path d="M15 9 21 3m-4 0h4v4" /></Svg>; }
+function TargetSmallIcon() { return <span className={styles.titleIcon}><TargetIcon /></span>; }
+function ClockIcon() { return <Svg><circle cx="12" cy="12" r="9" /><path d="M12 7v6l4 2" /></Svg>; }
+function RefreshIcon() { return <Svg><path d="M20 7v5h-5M4 17v-5h5M6.1 8A7 7 0 0 1 18.4 6.4L20 8M4 16l1.6 1.6A7 7 0 0 0 17.9 16" /></Svg>; }
+function SignalIcon() { return <Svg><path d="M4 10a11 11 0 0 1 16 0M7 13a7 7 0 0 1 10 0M10 16a3 3 0 0 1 4 0" /><circle cx="12" cy="19" r="1" /></Svg>; }
+function PersonIcon() { return <Svg><circle cx="12" cy="8" r="4" fill="currentColor" stroke="none" /><path d="M4.5 21c.6-5 3-7.5 7.5-7.5s6.9 2.5 7.5 7.5" fill="currentColor" stroke="none" /></Svg>; }
+function BrainIcon() { return <Svg><path d="M9.5 4.5A3 3 0 0 0 5 7v1a3 3 0 0 0-1 5.2A3 3 0 0 0 7 18h1.2M14.5 4.5A3 3 0 0 1 19 7v1a3 3 0 0 1 1 5.2A3 3 0 0 1 17 18h-1.2M9.5 4.5v15m5-15v15M7 9.5h2.5m5 0H17M7.5 15h2m5 0h2" /></Svg>; }
+function DatabaseIcon() { return <Svg><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></Svg>; }
