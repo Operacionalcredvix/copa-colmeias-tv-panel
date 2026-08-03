@@ -5,9 +5,14 @@ import styles from './page.module.css';
 
 const POLL_MS = Number(process.env.NEXT_PUBLIC_POLL_MS || 30000);
 const COORDINATOR_ORDER = ['DAIELLY', 'MARIA FERNANDA', 'MARIELEN'];
+const PROJECTION_CRITICAL = 70;
+const PROJECTION_ATTENTION = 90;
+const DAILY_CRITICAL = 35;
+const DAILY_ATTENTION = 80;
 
 type Tone = 'positive' | 'attention' | 'critical' | 'neutral';
 type Value = number | string | null | undefined;
+type FreshnessTone = 'fresh' | 'aging' | 'stale';
 
 type Store = {
   name?: string;
@@ -20,7 +25,10 @@ type Store = {
   paidTodayFormatted?: string;
   paidPercent?: number;
   conversionPending?: number;
+  conversionPendingFormatted?: string;
   monthPercent?: number;
+  status?: string;
+  insight?: string;
 };
 
 type Responsible = {
@@ -28,16 +36,30 @@ type Responsible = {
   paidToday?: number;
   paidTodayFormatted?: string;
   productionTodayFormatted?: string;
+  soldToday?: number;
+  soldTodayFormatted?: string;
   dailyGoal?: number;
   dailyGoalFormatted?: string;
   dailyPercent?: Value;
+  monthGoal?: number;
+  monthGoalFormatted?: string;
+  monthRealized?: number;
+  monthRealizedFormatted?: string;
   monthPercent?: Value;
+  monthAchievedPercent?: Value;
+  monthProjectionPercent?: Value;
+  monthProjectionAmount?: number;
+  monthProjectionAmountFormatted?: string;
+  monthProjectionGap?: number;
+  monthProjectionGapFormatted?: string;
   monthDelta?: number;
   monthDeltaFormatted?: string;
   projectionGapFormatted?: string;
   zeroCount?: number;
   storeCount?: number;
   status?: string;
+  risk?: string;
+  priority?: string;
 };
 
 type ZeroStore = {
@@ -66,8 +88,19 @@ type Payload = {
     dailyGoalFormatted?: string;
     dailyGap?: number;
     dailyGapFormatted?: string;
+    soldGap?: number;
+    soldGapFormatted?: string;
+    conversionPending?: number;
+    conversionPendingFormatted?: string;
     dailyPercent?: Value;
+    monthGoal?: number;
+    monthRealized?: number;
     monthPercent?: Value;
+    monthAchievedPercent?: Value;
+    monthProjectionPercent?: Value;
+    monthProjectionAmount?: number;
+    monthProjectionGap?: number;
+    monthProjectionGapFormatted?: string;
     projectionGapFormatted?: string;
   };
   rhythm?: { label?: string; description?: string; tone?: string };
@@ -83,18 +116,23 @@ type Payload = {
 
 type CoordinatorView = Responsible & {
   percent: number;
-  monthPercentNormalized: number;
+  monthProjectionPercentNormalized: number;
+  monthAchievedPercentNormalized: number;
   zeroCountNormalized: number;
   storeCountNormalized: number;
   tone: Tone;
   actionLabel: string;
+  statusReason: string;
 };
 
 type Priority = {
   title: string;
+  kind: 'ZERADA' | 'CONVERSÃO' | 'ABAIXO DA DIÁRIA';
   detail: string;
   responsible: string;
   impact: string;
+  impactLabel: string;
+  impactValue: number;
   tone: Tone;
 };
 
@@ -139,10 +177,34 @@ export default function ProducaoPage() {
         <Header data={data} view={view} panelTime={panelTime} stale={Boolean(error)} />
 
         <section className={styles.kpis}>
-          <Kpi icon={<DollarIcon />} label="Pago hoje" value={view.paid} detail={<><strong>{view.dailyPercent}</strong> da diária necessária</>} tone={view.paidTone} />
-          <Kpi icon={<CartIcon />} label="Vendido hoje" value={view.sold} detail={<><strong>{view.soldComparison}</strong> contra o retrato pago</>} tone="neutral" />
-          <Kpi icon={<WarningIcon />} label="Falta hoje" value={view.gap} detail={<>Necessário: <strong>{view.hourlyNeed}</strong></>} tone="attention" />
-          <Kpi icon={<TargetIcon />} label="Projeção do mês" value={view.monthPercent} detail={<strong className={view.monthDeltaTone === 'positive' ? styles.greenText : styles.redText}>{view.monthDelta}</strong>} tone="projection" />
+          <Kpi
+            icon={<DollarIcon />}
+            label="Pago hoje"
+            value={view.paid}
+            detail={<><strong>{view.dailyPercent}</strong> da diária necessária</>}
+            tone={view.paidTone}
+          />
+          <Kpi
+            icon={<CartIcon />}
+            label="Vendido hoje"
+            value={view.sold}
+            detail={<>{view.pendingPayment} aguardam pagamento</>}
+            tone="neutral"
+          />
+          <Kpi
+            icon={<WarningIcon />}
+            label="Falta hoje"
+            value={view.gap}
+            detail={<>{view.pendingConversion} conversão • {view.newSalesNeed} novas vendas</>}
+            tone="attention"
+          />
+          <Kpi
+            icon={<TargetIcon />}
+            label="Projeção do mês"
+            value={view.monthProjection}
+            detail={<>{view.monthAchieved} realizado • gap proj. {view.monthProjectionGap}</>}
+            tone="projection"
+          />
         </section>
 
         <section className={styles.mainGrid}>
@@ -151,7 +213,7 @@ export default function ProducaoPage() {
             <div className={styles.tableHeader}>
               <span>Coordenação</span>
               <span>Pago hoje / diária</span>
-              <span>Atingimento</span>
+              <span>Ritmo do dia</span>
               <span>Projeção mensal</span>
               <span>Lojas zeradas</span>
               <span>Status</span>
@@ -175,10 +237,9 @@ export default function ProducaoPage() {
         </section>
 
         <footer className={styles.footer}>
-          <div><DatabaseIcon /><span>Fonte: Gestão Preditiva Credvix</span></div>
+          <div><DatabaseIcon /><span>Fonte: Diária Estática + Projeção de Meta</span></div>
           <div><RefreshIcon /><span>Atualização automática</span></div>
-          <span>Tela 1 de 5</span>
-          <div className={styles.progressDots}>{Array.from({ length: 7 }, (_, index) => <i key={index} className={index === 0 ? styles.activeDot : ''} />)}</div>
+          <span className={styles.footerView}>Visão executiva</span>
         </footer>
       </div>
 
@@ -188,6 +249,10 @@ export default function ProducaoPage() {
 }
 
 function Header({ data, view, panelTime, stale }: { data: Payload; view: ReturnType<typeof buildView>; panelTime: string; stale: boolean }) {
+  const freshness = stale
+    ? { tone: 'stale' as FreshnessTone, label: 'Última carga válida' }
+    : loadFreshness(data.updatedAt);
+
   return (
     <header className={styles.header}>
       <div className={styles.brand}>
@@ -206,7 +271,7 @@ function Header({ data, view, panelTime, stale }: { data: Payload; view: ReturnT
         <div><span>Painel</span><b><ClockIcon />{panelTime}</b></div>
         <i />
         <div><span><SignalIcon /> Última carga</span><b><RefreshIcon />{normalizeHour(data.updatedAt)}</b></div>
-        <small className={stale ? styles.stale : ''}><em />{stale ? 'Última carga válida' : 'Dados atualizados'}</small>
+        <small className={styles[freshness.tone]}><em />{freshness.label}</small>
       </div>
     </header>
   );
@@ -239,8 +304,8 @@ function CoordinatorRow({ coordinator }: { coordinator: CoordinatorView }) {
       <strong className={`${styles.achievement} ${styles[coordinator.tone]}`}>{formatPercent(coordinator.percent)}</strong>
 
       <div className={styles.monthCell}>
-        <b className={styles[monthTone(coordinator.monthPercentNormalized)]}>{formatPercent(coordinator.monthPercentNormalized)}</b>
-        <small className={Number(coordinator.monthDelta || 0) >= 0 ? styles.greenText : styles.redText}>{coordinator.monthDeltaFormatted || 'R$ 0,00'}</small>
+        <b className={styles[monthTone(coordinator.monthProjectionPercentNormalized)]}>{formatPercent(coordinator.monthProjectionPercentNormalized)}</b>
+        <small className={styles.mutedText}>{formatPercent(coordinator.monthAchievedPercentNormalized, 1)} realizado</small>
       </div>
 
       <div className={styles.zeroCell}>
@@ -250,7 +315,7 @@ function CoordinatorRow({ coordinator }: { coordinator: CoordinatorView }) {
 
       <div className={styles.statusCell}>
         <span className={`${styles.statusBadge} ${styles[coordinator.tone]}`}>{toneLabel(coordinator.tone)}</span>
-        <small>{coordinator.actionLabel}</small>
+        <small>{coordinator.statusReason}</small>
       </div>
     </div>
   );
@@ -263,10 +328,10 @@ function PriorityRow({ priority, index }: { priority: Priority; index: number })
       <i />
       <div className={styles.priorityText}>
         <b>{priority.title}</b>
-        <span>{priority.detail}</span>
+        <span>{priority.kind} • {priority.detail}</span>
         <small>Responsável: {priority.responsible}</small>
       </div>
-      <div className={styles.impact}><span>Impacto diário</span><b>{priority.impact}</b></div>
+      <div className={styles.impact}><span>{priority.impactLabel}</span><b>{priority.impact}</b></div>
     </div>
   );
 }
@@ -275,40 +340,63 @@ function buildView(data: Payload | null) {
   const summary = data?.summary || {};
   const goal = data?.goal || {};
   const responsibleRows = Array.isArray(data?.responsiblePerformance) ? data!.responsiblePerformance! : data?.regionalPerformance || [];
-  const stores = Array.isArray(data?.operationalStores) ? data!.operationalStores! : [];
-  const zeroStores = Array.isArray(data?.zeroStores) ? data!.zeroStores! : [];
+  const allowed = new Set(COORDINATOR_ORDER);
+  const stores = (Array.isArray(data?.operationalStores) ? data!.operationalStores! : [])
+    .filter((store) => allowed.has(norm(store.responsible)));
+  const zeroStores = (Array.isArray(data?.zeroStores) ? data!.zeroStores! : [])
+    .filter((store) => allowed.has(norm(store.responsible)));
 
   const coordinators = COORDINATOR_ORDER.map((expectedName) => responsibleRows.find((row) => norm(row.name) === expectedName))
     .filter(Boolean)
     .map((row) => buildCoordinator(row as Responsible, stores, zeroStores));
 
-  const paid = Number(summary.paidToday || 0);
-  const sold = Number(summary.soldToday || 0);
-  const dailyGoal = Number(goal.dailyGoal || 0);
+  const hasCoordinatorData = coordinators.length > 0;
+  const paid = hasCoordinatorData
+    ? coordinators.reduce((sum, item) => sum + Number(item.paidToday || 0), 0)
+    : Number(summary.paidToday || 0);
+  const sold = hasCoordinatorData
+    ? coordinators.reduce((sum, item) => sum + Number(item.soldToday || 0), 0)
+    : Number(summary.soldToday || 0);
+  const dailyGoal = hasCoordinatorData
+    ? coordinators.reduce((sum, item) => sum + Number(item.dailyGoal || 0), 0)
+    : Number(goal.dailyGoal || 0);
+  const monthGoal = coordinators.reduce((sum, item) => sum + Number(item.monthGoal || 0), 0) || Number(goal.monthGoal || 0);
+  const monthRealized = coordinators.reduce((sum, item) => sum + Number(item.monthRealized || 0), 0) || Number(goal.monthRealized || 0);
+  const hasProjectionAmounts = coordinators.length > 0 && coordinators.every((item) => Number.isFinite(Number(item.monthProjectionAmount)));
+  const projectedAmount = hasProjectionAmounts
+    ? coordinators.reduce((sum, item) => sum + Number(item.monthProjectionAmount || 0), 0)
+    : Number(goal.monthProjectionAmount || 0);
+
   const dailyPercent = dailyGoal > 0 ? (paid / dailyGoal) * 100 : toPercent(goal.dailyPercent);
-  const monthPercent = toPercent(goal.monthPercent);
+  const monthAchieved = monthGoal > 0 ? (monthRealized / monthGoal) * 100 : toPercent(goal.monthAchievedPercent);
+  const monthProjection = monthGoal > 0 && projectedAmount > 0
+    ? (projectedAmount / monthGoal) * 100
+    : toPercent(goal.monthProjectionPercent ?? goal.monthPercent);
   const pending = Math.max(0, sold - paid);
-  const workingHoursLeft = hoursLeft();
-  const dailyGap = Math.max(0, Number(goal.dailyGap || dailyGoal - paid));
-  const monthDelta = String(goal.projectionGapFormatted || 'R$ 0,00');
-  const soldVsPaid = paid > 0 ? ((sold - paid) / paid) * 100 : sold > 0 ? 100 : 0;
+  const dailyGap = Math.max(0, dailyGoal - paid);
+  const newSalesNeed = Math.max(0, dailyGoal - sold);
+  const projectionGap = projectedAmount > 0 && monthGoal > 0
+    ? projectedAmount - monthGoal
+    : Number(goal.monthProjectionGap || 0);
+  const priorities = buildPriorities(zeroStores, stores);
 
   return {
-    paid: summary.paidTodayFormatted || summary.productionTodayFormatted || money(paid),
-    sold: summary.soldTodayFormatted || money(sold),
-    gap: goal.dailyGapFormatted || money(dailyGap),
+    paid: money(paid),
+    sold: money(sold),
+    gap: money(dailyGap),
     dailyPercent: formatPercent(dailyPercent),
-    soldComparison: `${soldVsPaid >= 0 ? '+' : ''}${Math.round(soldVsPaid)}%`,
-    hourlyNeed: workingHoursLeft > 0 ? `${moneyCompact(dailyGap / workingHoursLeft)}/h` : moneyCompact(dailyGap),
-    monthPercent: formatPercent(monthPercent),
-    monthDelta,
-    monthDeltaTone: monthDelta.trim().startsWith('+') ? 'positive' : 'critical',
+    pendingPayment: moneyShort(pending),
+    pendingConversion: moneyShort(Math.min(pending, dailyGap)),
+    newSalesNeed: moneyShort(newSalesNeed),
+    monthProjection: formatPercent(monthProjection),
+    monthAchieved: formatPercent(monthAchieved, 1),
+    monthProjectionGap: moneyShort(projectionGap),
     paidTone: dailyPercent >= 100 ? 'positive' as Tone : dailyPercent >= 50 ? 'attention' as Tone : 'critical' as Tone,
     rhythmLabel: data?.rhythm?.label || 'ATENÇÃO',
     rhythmDetail: data?.rhythm?.description || `${money(pending)} vendidos aguardam pagamento`,
     coordinators,
-    priorities: buildPriorities(zeroStores, stores),
-    diagnosis: data?.aiReading?.text || deterministicDiagnosis(coordinators),
+    priorities,
+    diagnosis: buildExecutiveDiagnosis(coordinators, priorities),
     warning: data?.warning || (data?.missingData?.length ? `Dados pendentes: ${data.missingData.join(', ')}` : '')
   };
 }
@@ -317,62 +405,122 @@ function buildCoordinator(row: Responsible, stores: Store[], zeroStores: ZeroSto
   const coordinatorStores = stores.filter((store) => norm(store.responsible) === norm(row.name));
   const paid = Number(row.paidToday || 0);
   const dailyGoal = Number(row.dailyGoal || 0);
-  const monthPercentNormalized = toPercent(row.monthPercent);
-  const percent = dailyGoal > 0 ? (paid / dailyGoal) * 100 : monthPercentNormalized >= 100 ? 100 : 0;
+  const monthProjectionPercentNormalized = toPercent(row.monthProjectionPercent ?? row.monthPercent);
+  const monthAchievedPercentNormalized = toPercent(row.monthAchievedPercent);
+  const percent = dailyGoal > 0 ? (paid / dailyGoal) * 100 : 0;
   const zeroCountNormalized = Number(row.zeroCount ?? zeroStores.filter((store) => norm(store.responsible) === norm(row.name)).length);
   const storeCountNormalized = Number(row.storeCount ?? coordinatorStores.length);
-  const tone: Tone = monthPercentNormalized < 85 || zeroCountNormalized >= 3 || percent < 35
-    ? 'critical'
-    : monthPercentNormalized < 100 || zeroCountNormalized > 0 || percent < 100
-      ? 'attention'
-      : 'positive';
+  const tone = coordinatorTone(monthProjectionPercentNormalized, zeroCountNormalized, percent);
+  const statusReason = coordinatorReason(monthProjectionPercentNormalized, zeroCountNormalized, percent);
 
   return {
     ...row,
     percent,
-    monthPercentNormalized,
+    monthProjectionPercentNormalized,
+    monthAchievedPercentNormalized,
     zeroCountNormalized,
     storeCountNormalized,
     tone,
+    statusReason,
     actionLabel: tone === 'critical' ? 'Ação imediata' : tone === 'attention' ? 'Acompanhar' : 'Controlado'
   };
 }
 
-function buildPriorities(zeroStores: ZeroStore[], stores: Store[]): Priority[] {
-  const zeroPriorities = [...zeroStores]
-    .sort((a, b) => Number(b.dailyGoal || 0) - Number(a.dailyGoal || 0))
-    .map((store, index) => ({
-      title: String(store.name || 'Loja zerada').toUpperCase(),
-      detail: `Zerada até ${currentHourLabel()}`,
-      responsible: store.responsible || 'Sem coordenação',
-      impact: store.dailyGoalFormatted || money(Number(store.dailyGoal || 0)),
-      tone: index === 0 ? 'critical' as Tone : index < 3 ? 'attention' as Tone : 'neutral' as Tone
-    }));
-
-  const zeroNames = new Set(zeroStores.map((store) => norm(store.name)));
-  const gapPriorities = stores
-    .filter((store) => !zeroNames.has(norm(store.name)) && Number(store.dailyGoal || 0) > Number(store.paidToday || 0))
-    .map((store) => ({ ...store, gap: Math.max(0, Number(store.dailyGoal || 0) - Number(store.paidToday || 0)) }))
-    .sort((a, b) => b.gap - a.gap)
-    .map((store) => ({
-      title: String(store.name || 'Loja').toUpperCase(),
-      detail: `${moneyCompact(store.gap)} abaixo da diária`,
-      responsible: store.responsible || 'Sem coordenação',
-      impact: moneyCompact(store.gap),
-      tone: 'neutral' as Tone
-    }));
-
-  return [...zeroPriorities, ...gapPriorities].slice(0, 5);
+function coordinatorTone(projection: number, zeroCount: number, dailyPercent: number): Tone {
+  if (projection < PROJECTION_CRITICAL || zeroCount >= 3 || dailyPercent < DAILY_CRITICAL) return 'critical';
+  if (projection < PROJECTION_ATTENTION || zeroCount > 0 || dailyPercent < DAILY_ATTENTION) return 'attention';
+  return 'positive';
 }
 
-function deterministicDiagnosis(coordinators: CoordinatorView[]) {
-  const risk = [...coordinators].sort((a, b) => {
-    const aScore = (a.monthPercentNormalized < 85 ? 1000 : 0) + a.zeroCountNormalized * 100 + Math.max(0, 100 - a.monthPercentNormalized);
-    const bScore = (b.monthPercentNormalized < 85 ? 1000 : 0) + b.zeroCountNormalized * 100 + Math.max(0, 100 - b.monthPercentNormalized);
-    return bScore - aScore;
-  })[0];
+function coordinatorReason(projection: number, zeroCount: number, dailyPercent: number) {
+  if (projection < PROJECTION_CRITICAL) return 'PROJEÇÃO';
+  if (zeroCount >= 3) return `${zeroCount} ZERADAS`;
+  if (dailyPercent < DAILY_CRITICAL) return 'RITMO DO DIA';
+  if (projection < PROJECTION_ATTENTION) return 'PROJEÇÃO';
+  if (zeroCount > 0) return `${zeroCount} ${zeroCount === 1 ? 'ZERADA' : 'ZERADAS'}`;
+  if (dailyPercent < 100) return 'DIÁRIA';
+  return 'CONTROLADO';
+}
+
+function buildPriorities(zeroStores: ZeroStore[], stores: Store[]): Priority[] {
+  const zeroNames = new Set(zeroStores.map((store) => norm(store.name)));
+
+  const zeroPriorities: Priority[] = [...zeroStores]
+    .sort((a, b) => Number(b.dailyGoal || 0) - Number(a.dailyGoal || 0))
+    .map((store, index) => {
+      const gap = Math.max(0, Number(store.dailyGoal || 0));
+      return {
+        title: String(store.name || 'Loja zerada').toUpperCase(),
+        kind: 'ZERADA',
+        detail: 'Acionar carteira agora',
+        responsible: store.responsible || 'Sem coordenação',
+        impact: moneyCompact(gap),
+        impactLabel: 'Gap recuperável',
+        impactValue: gap,
+        tone: index === 0 ? 'critical' : index < 3 ? 'attention' : 'neutral'
+      };
+    });
+
+  const conversionPriorities: Priority[] = stores
+    .filter((store) => !zeroNames.has(norm(store.name)) && Number(store.conversionPending || 0) > 0 && Number(store.dailyGoal || 0) > Number(store.paidToday || 0))
+    .map((store) => {
+      const dailyGap = Math.max(0, Number(store.dailyGoal || 0) - Number(store.paidToday || 0));
+      const pending = Math.max(0, Number(store.conversionPending || 0));
+      const recoverable = Math.min(dailyGap, pending);
+      return {
+        store,
+        priority: {
+          title: String(store.name || 'Loja').toUpperCase(),
+          kind: 'CONVERSÃO' as const,
+          detail: `Converter ${moneyShort(pending)} já vendidos`,
+          responsible: store.responsible || 'Sem coordenação',
+          impact: moneyCompact(recoverable),
+          impactLabel: 'Gap recuperável',
+          impactValue: recoverable,
+          tone: 'attention' as Tone
+        }
+      };
+    })
+    .sort((a, b) => b.priority.impactValue - a.priority.impactValue)
+    .map((item) => item.priority);
+
+  const priorityNames = new Set([...zeroPriorities, ...conversionPriorities].map((item) => norm(item.title)));
+  const gapPriorities: Priority[] = stores
+    .filter((store) => !priorityNames.has(norm(store.name)) && Number(store.dailyGoal || 0) > Number(store.paidToday || 0))
+    .map((store) => {
+      const gap = Math.max(0, Number(store.dailyGoal || 0) - Number(store.paidToday || 0));
+      return {
+        title: String(store.name || 'Loja').toUpperCase(),
+        kind: 'ABAIXO DA DIÁRIA',
+        detail: 'Recuperar produção ainda hoje',
+        responsible: store.responsible || 'Sem coordenação',
+        impact: moneyCompact(gap),
+        impactLabel: 'Gap recuperável',
+        impactValue: gap,
+        tone: 'neutral'
+      };
+    })
+    .sort((a, b) => b.impactValue - a.impactValue);
+
+  return [...zeroPriorities, ...conversionPriorities, ...gapPriorities].slice(0, 5);
+}
+
+function buildExecutiveDiagnosis(coordinators: CoordinatorView[], priorities: Priority[]) {
+  const risk = [...coordinators].sort((a, b) => coordinatorRiskScore(b) - coordinatorRiskScore(a))[0];
   if (!risk) return 'Sem leitura consolidada por coordenação nesta atualização.';
-  return `${risk.name} concentra o maior risco do dia por projeção mensal de ${formatPercent(risk.monthPercentNormalized)} e ${risk.zeroCountNormalized} loja(s) zerada(s).`;
+
+  const related = priorities.filter((priority) => norm(priority.responsible) === norm(risk.name)).slice(0, 2);
+  const action = related.length
+    ? `Atuar primeiro em ${related.map((item) => titleCase(item.title)).join(' e ')}, com ${moneyShort(related.reduce((sum, item) => sum + item.impactValue, 0))} de gap recuperável.`
+    : 'Reforçar a atuação da coordenação nas lojas abaixo da diária.';
+
+  return `Prioridade: ${risk.name} — projeção de ${formatPercent(risk.monthProjectionPercentNormalized)}, ${formatPercent(risk.monthAchievedPercentNormalized, 1)} realizado e ${risk.zeroCountNormalized} loja(s) zerada(s). ${action}`;
+}
+
+function coordinatorRiskScore(row: CoordinatorView) {
+  return Math.max(0, 100 - row.monthProjectionPercentNormalized) * 10
+    + row.zeroCountNormalized * 120
+    + Math.max(0, 100 - row.percent);
 }
 
 function toneLabel(tone: Tone) {
@@ -383,7 +531,7 @@ function toneLabel(tone: Tone) {
 }
 
 function monthTone(percent: number): Tone {
-  return percent >= 100 ? 'positive' : percent >= 85 ? 'attention' : 'critical';
+  return percent >= 100 ? 'positive' : percent >= PROJECTION_ATTENTION ? 'attention' : 'critical';
 }
 
 function toPercent(value: Value) {
@@ -403,8 +551,8 @@ function numeric(value: Value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatPercent(value: number) {
-  return `${Math.round(value).toLocaleString('pt-BR')}%`;
+function formatPercent(value: number, digits = 0) {
+  return `${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
 }
 
 function money(value: number) {
@@ -416,6 +564,15 @@ function moneyCompact(value: Value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(parsed);
 }
 
+function moneyShort(value: Value) {
+  const parsed = Number(value || 0);
+  const absolute = Math.abs(parsed);
+  const sign = parsed < 0 ? '-' : '';
+  if (absolute >= 1_000_000) return `${sign}R$ ${(absolute / 1_000_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`;
+  if (absolute >= 1_000) return `${sign}R$ ${(absolute / 1_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mil`;
+  return `${sign}${money(absolute)}`;
+}
+
 function normalizeHour(value?: string) {
   const raw = String(value || '').trim();
   const direct = raw.match(/(\d{1,2})h(\d{2})/i);
@@ -424,10 +581,30 @@ function normalizeHour(value?: string) {
   return colon ? `${colon[1].padStart(2, '0')}h${colon[2]}` : '--h--';
 }
 
-function hoursLeft() {
-  const now = new Date();
-  const hour = Number(new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false }).format(now));
-  return Math.max(1, 19 - hour);
+function loadFreshness(value?: string): { tone: FreshnessTone; label: string } {
+  const normalized = normalizeHour(value);
+  const match = normalized.match(/(\d{2})h(\d{2})/);
+  if (!match) return { tone: 'stale', label: 'Horário da carga indisponível' };
+
+  const loadMinutes = Number(match[1]) * 60 + Number(match[2]);
+  let age = currentSaoPauloMinutes() - loadMinutes;
+  if (age < 0) age += 24 * 60;
+
+  if (age <= 15) return { tone: 'fresh', label: age <= 1 ? 'Dados atualizados agora' : `Dados atualizados • há ${age} min` };
+  if (age <= 30) return { tone: 'aging', label: `Atenção à carga • há ${age} min` };
+  return { tone: 'stale', label: `Carga desatualizada • há ${age} min` };
+}
+
+function currentSaoPauloMinutes() {
+  const parts = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
+  return hour * 60 + minute;
 }
 
 function currentHourLabel() {
@@ -435,6 +612,10 @@ function currentHourLabel() {
   const hour = parts.find((part) => part.type === 'hour')?.value || '--';
   const minute = parts.find((part) => part.type === 'minute')?.value || '--';
   return `${hour}h${minute}`;
+}
+
+function titleCase(value: string) {
+  return String(value || '').toLocaleLowerCase('pt-BR').replace(/(^|[\s-])([\p{L}])/gu, (_, prefix, letter) => `${prefix}${letter.toLocaleUpperCase('pt-BR')}`);
 }
 
 function norm(value?: string) {
