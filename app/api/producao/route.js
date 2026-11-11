@@ -166,6 +166,7 @@ function parseDailyOperational(values) {
   const flatText = values.flat().map((cell) => String(cell ?? '').trim()).filter(Boolean);
   const updateLabel = flatText.find((text) => /^Atualizado às\s+/i.test(text)) || '';
   const baseDate = findBaseDate(values);
+  const businessDaysInMonth = number(values[2]?.[7]); // DIÁRIA ESTÁTICA!H3
 
   for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
     const row = values[rowIndex] || [];
@@ -236,11 +237,11 @@ function parseDailyOperational(values) {
   if (!coordinators.length) throw new Error('Resumo de coordenadoras não encontrado na DIÁRIA ESTÁTICA.');
   if (!stores.length) throw new Error('Blocos de lojas não encontrados na DIÁRIA ESTÁTICA.');
 
-  return { summary, coordinators, stores, updateLabel, baseDate };
+  return { summary, coordinators, stores, updateLabel, baseDate, businessDaysInMonth };
 }
 
 function parseSummaryRow(headers, row) {
-  const monthRealized = value(headers, row, ['REALIZADO']);
+  const monthRealized = value(headers, row, ['REALIZADO (PAGO + GERENCIAL)', 'REALIZADO']);
   const monthGoal = value(headers, row, ['META']);
   const dailyGoal = value(headers, row, ['DIARIA NECESSARIA DO DIA', 'DIARIA']);
   const soldToday = value(headers, row, ['VENDIDO HOJE']);
@@ -309,6 +310,45 @@ function emptyProjection(message = '') {
   };
 }
 
+function calculateRecoveryToday(item, projectionPercent, businessDaysInMonth) {
+  const { monthGoal, monthRealized, paidToday, dailyGoal } = item;
+  if (
+    ![monthGoal, monthRealized, paidToday, dailyGoal, businessDaysInMonth].every(Number.isFinite) ||
+    monthGoal <= 0 || monthRealized < 0 || paidToday < 0 || dailyGoal < 0 ||
+    !Number.isInteger(businessDaysInMonth) || businessDaysInMonth <= 0 ||
+    monthRealized + 0.01 < paidToday
+  ) return null;
+
+  const realizedUntilYesterday = Math.max(0, monthRealized - paidToday);
+  if (dailyGoal === 0) return realizedUntilYesterday >= monthGoal ? 0 : null;
+
+  let businessDayNumber = null;
+
+  // A projeção mensal da própria planilha usa NETWORKDAYS e a lista oficial de feriados.
+  // Recupera o índice de dia útil dessa projeção, sem manter um calendário paralelo.
+  if (monthRealized > 0 && Number.isFinite(projectionPercent) && projectionPercent > 0) {
+    const inferredDay = (monthRealized * businessDaysInMonth * 100) / (monthGoal * projectionPercent);
+    const roundedDay = Math.round(inferredDay);
+    if (
+      Math.abs(inferredDay - roundedDay) <= 0.1 &&
+      roundedDay >= 1 && roundedDay <= businessDaysInMonth
+    ) businessDayNumber = roundedDay;
+  }
+
+  // Na ausência de projeção válida, inverte a fórmula da diária da DIÁRIA ESTÁTICA.
+  if (businessDayNumber === null) {
+    const remainingDays = (monthGoal - realizedUntilYesterday) / dailyGoal;
+    const roundedRemainingDays = Math.round(remainingDays);
+    if (
+      Math.abs(remainingDays - roundedRemainingDays) > 0.1 ||
+      roundedRemainingDays < 1 || roundedRemainingDays > businessDaysInMonth
+    ) return null;
+    businessDayNumber = businessDaysInMonth - roundedRemainingDays + 1;
+  }
+
+  return Math.max(0, dailyGoal * businessDayNumber - realizedUntilYesterday);
+}
+
 function patchPayload(base, operational, projection) {
   const total = operational.summary;
   const paidToday = total.paidToday;
@@ -362,6 +402,7 @@ function patchPayload(base, operational, projection) {
     const projectionAmount = projectionPercent === null ? null : item.monthGoal * projectionPercent / 100;
     const projectionGap = projectionAmount === null ? null : projectionAmount - item.monthGoal;
     const projectionRisk = projectionPercent === null ? true : projectionPercent < 85;
+    const recoveryToday = calculateRecoveryToday(item, projectionPercent, operational.businessDaysInMonth);
 
     return {
       name: item.name,
@@ -383,6 +424,7 @@ function patchPayload(base, operational, projection) {
       monthGoalFormatted: money(item.monthGoal),
       monthRealized: item.monthRealized,
       monthRealizedFormatted: money(item.monthRealized),
+      recoveryToday,
       monthPercent: projectionPercent,
       monthAchievedPercent: item.monthPercent,
       monthProjectionPercent: projectionPercent,
