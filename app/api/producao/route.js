@@ -1,6 +1,7 @@
 import { JWT } from 'google-auth-library';
 import { handleRadarRequest } from '../../../lib/radar-core';
 import { handleStructuredAiRequest } from '../../../lib/deepseek-structured';
+import { applyDailySnapshot } from '../../../lib/radar-snapshot';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -64,7 +65,7 @@ export async function GET(request) {
       await handleRadarRequest(request);
   } else {
     response =
-      await handleVisualPayload();
+      await handleVisualPayload(request);
   }
 
   return withCors(request, response);
@@ -81,7 +82,7 @@ export async function OPTIONS(request) {
   });
 }
 
-async function handleVisualPayload() {
+async function handleVisualPayload(request) {
   try {
     const [dailyValues, projectionResult] = await Promise.all([
       getSheetValues("'DIÁRIA ESTÁTICA'!A1:N123", 'DIÁRIA ESTÁTICA'),
@@ -108,8 +109,25 @@ async function handleVisualPayload() {
     }
 
     const payload = patchPayload({}, operational, projection);
+    const url = new URL(request.url);
+    if (url.searchParams.get('snapshotSource') === '1') {
+      const [competenceValues, holidayValues] = await Promise.all([
+        getSheetValues("'CONTROLE COMPETÊNCIA'!A1:B8", 'CONTROLE COMPETÊNCIA'),
+        getSheetValues("'FERIADOS | GERAL'!A1:A100", 'FERIADOS | GERAL')
+      ]);
+      const calendar = {
+        start: formatDate(competenceValues?.[2]?.[1]),
+        end: formatDate(competenceValues?.[3]?.[1]),
+        businessDays: number(competenceValues?.[6]?.[1]),
+        holidays: holidayValues.slice(1).map((row) => formatDate(row?.[0])).filter(Boolean)
+      };
+      return Response.json({ ...payload, calendar }, {
+        headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
+      });
+    }
+    const staticPayload = await applyDailySnapshot(payload);
 
-    return Response.json(payload, {
+    return Response.json(staticPayload, {
       headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
     });
   } catch (error) {
@@ -203,13 +221,14 @@ function parseDailyOperational(values) {
         const key = normalize(rawName);
         if (!rawName || key.startsWith('TOTAL') || key.startsWith('COORDENACAO')) break;
 
-        const monthGoal = value(headers, data, ['META AGOSTO', 'META JULHO', 'META']);
-        const monthRealized = value(headers, data, ['REALIZADO AGOSTO', 'REALIZADO JULHO', 'REALIZADO']);
+        const monthGoal = valueByPrefix(headers, data, 'META');
+        const monthRealized = valueByPrefix(headers, data, 'REALIZADO');
         const dailyGoal = value(headers, data, ['DIARIA']);
         const soldToday = value(headers, data, ['VENDIDO HOJE']);
         const paidToday = value(headers, data, ['PAGO NO RETRATO', 'PAGO HOJE']);
 
         stores.push({
+          code: /^\d{5}/.exec(rawName)?.[0] || '',
           name: cleanStoreName(rawName),
           responsible: currentResponsible,
           monthGoal,
@@ -593,6 +612,11 @@ function rawValue(headers, row, names) {
     if (index >= 0) return row[index];
   }
   return null;
+}
+
+function valueByPrefix(headers, row, prefix) {
+  const index = headers.findIndex((header) => header === prefix || header.startsWith(prefix + ' '));
+  return index < 0 ? 0 : number(row[index]);
 }
 
 function value(headers, row, names) {
