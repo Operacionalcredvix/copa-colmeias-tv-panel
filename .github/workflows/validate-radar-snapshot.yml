@@ -1,0 +1,26 @@
+name: Validate Radar Snapshot API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/api/producao/route.js'
+      - 'lib/radar-snapshot.js'
+      - '.github/workflows/validate-radar-snapshot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check API and snapshot syntax
+        run: |
+          node --check app/api/producao/route.js
+          node --check lib/radar-snapshot.js
